@@ -28,6 +28,12 @@ def _check_links(path: Path) -> None:
 
 
 class PolicyGuard:
+    def resolve_edit(self, relative: str) -> Path:
+        path = self.resolve(relative)
+        if path.suffix.lower() not in {".py", ".pyi"} or path.name.lower() in {"setup.py", "conftest.py"}:
+            raise ToolError("EDIT_FORBIDDEN", "Only Python source/tests may be edited; setup and test configuration are excluded")
+        return path
+
     def __init__(self, project: Path):
         # Do not resolve away symlink evidence before checking the supplied root.
         supplied = Path(project).absolute()

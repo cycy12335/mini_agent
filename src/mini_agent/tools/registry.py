@@ -1,4 +1,4 @@
-"""Single guarded dispatch path; stage 2 has no writes or test processes."""
+"""Guarded proposal dispatch; only the controller can approve/apply edits."""
 
 from pathlib import Path
 
@@ -31,20 +31,18 @@ class ToolRegistry:
         if name == "propose_edits":
             return self._propose(args["edits"])
         return ToolResult(False, error_code="TESTS_UNAVAILABLE",
-                          message="Stage 2 does not execute tests, even with --allow-tests")
+                          message="Stage 3 does not execute tests, even with --allow-tests")
 
     @result_boundary
     def _propose(self, edits: list[dict]) -> ToolResult:
         checked = []
         seen: set[Path] = set()
         for edit in edits:
-            path = self.files.policy.resolve(edit["path"])
+            path = self.files.policy.resolve_edit(edit["path"])
             if path in seen:
                 raise ToolError("DUPLICATE_PATH", "A file can appear only once per proposal")
             seen.add(path)
             # V1 edits are restricted to Python source/tests, never config/manifests.
-            if path.suffix.lower() not in {".py", ".pyi"} or path.name.lower() == "setup.py":
-                raise ToolError("EDIT_FORBIDDEN", "Only Python source/test proposals are supported")
             current = self.files.read_file(edit["path"])
             if not current.ok:
                 return current
@@ -54,4 +52,4 @@ class ToolRegistry:
             checked.append({**edit, "path": path.relative_to(self.files.policy.root).as_posix()})
         self.proposals.append(checked)
         return ToolResult(True, {"proposal": len(self.proposals), "files": [e["path"] for e in checked],
-                                 "applied": False}, message="Proposal recorded only; approval/apply is stage 3")
+                                 "applied": False}, message="Proposal recorded; controller approval is required for writing")
