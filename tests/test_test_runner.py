@@ -167,7 +167,9 @@ def alive(pid):
 def test_real_child_and_grandchild_cleanup(project, tmp_path, interpreter, mode):
     # Grandchild readiness is published before allowing pytest to finish/cancel.
     child = project / "child.py"
-    grandchild_code = "import os,time; from pathlib import Path; Path('grandchild.pid').write_text(str(os.getpid())); time.sleep(60)"
+    grandchild_code = ("import os,time; from pathlib import Path; "
+                       "Path('grandchild.tmp').write_text(str(os.getpid())); "
+                       "Path('grandchild.tmp').replace('grandchild.pid'); time.sleep(60)")
     child.write_text("import os,sys,subprocess,time\nfrom pathlib import Path\n"
                      "Path('child.pid').write_text(str(os.getpid()))\n"
                      f"subprocess.Popen([sys.executable, '-c', {grandchild_code!r}])\n"
