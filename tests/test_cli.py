@@ -13,13 +13,16 @@ def test_module_help():
     assert b"run" in result.stdout
 
 
-def test_valid_run_reports_unimplemented_without_writing(tmp_path, capsys):
-    source = tmp_path / "example.py"
+def test_run_reports_missing_mock_fixture_without_writing(tmp_path, capsys):
+    project = tmp_path / "project"
+    project.mkdir()
+    source = project / "example.py"
     source.write_text("x = 1\n", encoding="utf-8")
-    code = main(["run", "--project", str(tmp_path), "--task", "fix bug", "--read-only"])
+    code = main(["run", "--project", str(project), "--task", "fix bug", "--read-only",
+                 "--runs-dir", str(tmp_path / "runs")])
     assert code == 1
     assert "failed" in capsys.readouterr().out
-    assert list(tmp_path.iterdir()) == [source]
+    assert list(project.iterdir()) == [source]
     assert source.read_text(encoding="utf-8") == "x = 1\n"
 
 

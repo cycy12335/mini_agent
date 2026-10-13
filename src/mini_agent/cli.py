@@ -8,12 +8,16 @@ from . import __version__
 from .config import ConfigError, load_config
 from .policy import PolicyGuard
 from .tools.files import FileTools, result_boundary
+from .adapters.mock import MockAdapter
+from .audit import AuditLog, DEFAULT_RUNS_ROOT
+from .controller import AgentController
+from .tools.registry import ToolRegistry
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mini-agent",
-        description="Mini Coding Agent — 阶段 1：只读文件工具与权限边界。",
+        description="Mini Coding Agent — 阶段 2：离线 Mock 循环与修改提案。",
     )
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -28,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     search = operations.add_parser("search", help="按字面量搜索文本")
     search.add_argument("query", help="区分大小写的搜索文本（非正则表达式）")
     search.add_argument("--path", default=".", help="相对目录")
-    run = commands.add_parser("run", help="校验任务参数（Agent 执行尚未实现）")
+    run = commands.add_parser("run", help="运行离线 Mock 示例，只记录提案")
     run.add_argument("--project", type=Path, required=True, help="目标项目目录")
     run.add_argument("--task", required=True, help="bug 描述")
     run.add_argument("--model", choices=("mock", "api"), default="mock",
@@ -38,6 +42,8 @@ def build_parser() -> argparse.ArgumentParser:
     permissions.add_argument("--read-only", action="store_true", help="只读模式")
     permissions.add_argument("--allow-tests", action="store_true", help="显式允许未来的测试执行")
     run.add_argument("--test-python", type=Path, help="目标项目虚拟环境解释器")
+    run.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_ROOT,
+                     help="本地审计目录，必须位于目标项目之外（模型不能指定）")
     return parser
 
 
@@ -53,25 +59,29 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result.to_dict(), ensure_ascii=False))
         return 0 if result.ok else 1
     try:
-        project = args.project.resolve(strict=True)
-        if not project.is_dir():
-            parser.error("--project 必须是已存在的目录")
-        if not args.task.strip():
-            parser.error("--task 不能为空")
-        load_config(args.config)
-        if args.allow_tests and args.test_python is None:
-            parser.error("--allow-tests 需要指定 --test-python")
-        if args.test_python is not None:
-            interpreter = args.test_python.resolve(strict=True)
-            if not interpreter.is_file():
-                parser.error("--test-python 必须是已存在的解释器文件")
-    except (OSError, RuntimeError, ConfigError) as exc:
+        policy = PolicyGuard(args.project)
+        if not args.task.strip() or len(args.task) > 4096:
+            parser.error("--task 需要 1–4096 个字符")
+        config = load_config(args.config)
+        if args.model != "mock":
+            parser.error("真实 API 适配将在阶段 5 实现，当前仅支持 --model mock")
+        if args.allow_tests or args.test_python is not None:
+            parser.error("阶段 2 不支持测试执行；请移除 --allow-tests/--test-python")
+        audit = AuditLog(args.runs_dir, policy.root)
+    except (OSError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
-    print(f"目标项目：{project}")
-    print("参数与配置校验通过。阶段 1 尚未实现 Agent 循环，请使用 files 命令浏览项目。")
-    print("未读取项目源码、调用模型、修改文件或运行项目测试。")
-    print("状态：failed（功能尚未实现，不代表目标项目测试失败）")
-    return 1
+    print("Mock 为预设的 average 空列表演示，不是通用模型；本次只读并记录提案。")
+    print(f"运行目录：{audit.directory}", flush=True)
+    try:
+        result = AgentController(MockAdapter(), ToolRegistry(FileTools(policy, config)), audit, config).run(args.task)
+    except OSError:
+        print("状态：failed；审计写入失败，无法保证报告完整。目标项目未修改。")
+        return 1
+    print(f"状态：{result.status} ({result.reason})")
+    print(result.message)
+    print("测试：未执行；修改：未应用。")
+    print(f"报告：{result.report}")
+    return result.exit_code
 
 
 @result_boundary

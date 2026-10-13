@@ -30,6 +30,7 @@ class FileTools:
     def __init__(self, policy: PolicyGuard, config: AgentConfig | None = None):
         self.policy = policy
         self.config = config or AgentConfig()
+        self.read_paths: set[str] = set()
 
     def _scan(self, relative: str) -> tuple[list[str], bool, int]:
         start = self.policy.resolve(relative, directory=True)
@@ -77,6 +78,7 @@ class FileTools:
             raise ToolError("NOT_TEXT", "File is not UTF-8 text") from exc
         if any(ord(c) < 32 and c not in "\n\r\t" for c in text):
             raise ToolError("NOT_TEXT", "Binary or control characters are excluded")
+        self.read_paths.add(path.relative_to(self.policy.root).as_posix())
         return raw, text
 
     @result_boundary
