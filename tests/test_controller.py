@@ -135,7 +135,7 @@ def test_tool_failure_feedback_and_tests_denied(project, tmp_path):
     result = build(project, tmp_path, adapter).run("task")
     assert result.status == "failed"
     assert adapter.messages[1][-1]["result"]["error_code"] == "NOT_FOUND"
-    assert adapter.messages[2][-1]["result"]["error_code"] == "TESTS_UNAVAILABLE"
+    assert adapter.messages[2][-1]["result"]["error_code"] == "TESTS_NOT_AUTHORIZED"
 
 
 def test_registry_validates_direct_calls_and_proposals(project, tmp_path):

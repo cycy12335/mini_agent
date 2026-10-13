@@ -1,8 +1,8 @@
 # Mini Coding Agent
 
-遵循 [PLAN.md](PLAN.md) 的 Python 命令行编程 Agent。当前完成阶段 0–3：只读工具、离线 Mock 循环、差异预览、审批、备份、应用和恢复。
+遵循 [PLAN.md](PLAN.md) 的 Python 命令行编程 Agent。当前完成阶段 0–4：只读工具、离线 Mock 循环、差异预览、审批、备份、应用、恢复与授权测试反馈。
 
-`files` 可用于浏览目标项目，`run --model mock` 可跑通预设示例并在确认后应用补丁。`inspect` 查看记录，`rollback` 预览并确认恢复。Mock 是固定演示，不是通用模型；任务描述会记录在会话中，但不会改变预设修复策略。尚未实现自动项目测试执行器及真实模型 API。
+`files` 可用于浏览目标项目，`run --model mock` 可跑通预设示例并在确认后应用补丁。显式授权测试后，先保存基线，再自动测试每次已批准的修改。`inspect` 查看记录，`rollback` 预览并确认恢复。Mock 是固定演示，不是通用模型；任务描述会记录在会话中，但不会改变预设修复策略。真实模型 API 将在阶段 5 实现。
 
 ## 环境与安装
 
@@ -54,7 +54,7 @@ $env:PYTEST_DEBUG_TEMPROOT = (Resolve-Path .pytest-tmp).Path
   --read-only
 ```
 
-上述只读命令正常结束为 `proposed`，退出码 0；显示差异但不会请求写入或应用。去掉 `--read-only` 后，每次提案显示差异并询问 `应用此提案？[y/N]`；只有输入 `y` 才会应用，空输入、其他回答或输入结束均拒绝。批准应用后状态为 `unverified`、退出码 2，拒绝为 `cancelled`、退出码 3。传入 `--allow-tests`、`--test-python` 或 `--model api` 仍会明确拒绝。项目根通过完整路径权限检查，不会先消除符号链接再校验。
+上述只读命令正常结束为 `proposed`，退出码 0；显示差异但不会请求写入或应用。去掉 `--read-only` 后，每次提案显示差异并询问 `应用此提案？[y/N]`；只有输入 `y` 才会应用，空输入、其他回答或输入结束均拒绝。未授权测试时批准应用后状态为 `unverified`、退出码 2，拒绝为 `cancelled`、退出码 3。`--allow-tests` 与 `--test-python` 必须同时提供，且不能和 `--read-only` 同用；`--model api` 暂不可用。项目根通过完整路径权限检查，不会先消除符号链接再校验。
 
 产物默认保存在 Agent 项目的 `.mini-agent/runs/<run-id>/`：`events.jsonl` 记录动作、工具结果、格式错误和结束事件；`proposals.json` 保存已接受的完整文件替换提案（没有提案时不生成）；`summary.json` 与 `report.md` 列出状态、已读文件、提案数及未验证限制。日志可能包含源码，默认被 Git 忽略。源码中的提示文本只作为数据，不改变工具权限。
 
@@ -68,11 +68,11 @@ $env:PYTEST_DEBUG_TEMPROOT = (Resolve-Path .pytest-tmp).Path
 
 结束动作是 `{"type":"final","message":"结论"}`。提案工具 `propose_edits` 接受 `edits` 数组，每项只有 `path`、`original_sha256` 和完整 UTF-8 `content`；仅允许已有 Python 源码/测试文件，禁止 `setup.py`、`conftest.py` 和配置文件。路径、大小、原始哈希和重复路径均须校验；模型只能提出提案，审批及应用由控制器完成。
 
-非法 JSON、未知工具、缺参、多余字段或不合法类型最多允许一次纠正；再次无效结束为 `failed`。每次模型调用（包括无效动作和 final）占用一步，默认最多 20 步。支持 Ctrl+C 取消（`cancelled`，退出码 3）、步数/上下文/运行时间超限和执行错误（`failed`，退出码 1）。`proposed` 仅表示已有读取依据的未验证结论，是否生成提案应查看报告中的提案数。模型文字不决定测试状态：当前报告始终为 `not_run`，不会输出控制器认定的 `verified`。
+非法 JSON、未知工具、缺参、多余字段或不合法类型最多允许一次纠正；再次无效结束为 `failed`。每次模型调用（包括无效动作和 final）占用一步，默认最多 20 步。支持 Ctrl+C 取消（`cancelled`，退出码 3）、步数/上下文/运行时间超限和执行错误（`failed`，退出码 1）。`proposed` 仅表示已有读取依据的未验证结论，是否生成提案应查看报告中的提案数。模型文字不决定测试状态：未执行时为 `not_run`；只有最新修改经过实际测试且基线比较满足要求，控制器才返回 `verified`、退出码 0。
 
 时间预算在调度前和适配器返回后检查；当前 Mock 是即时本地逻辑，没有后台线程或进程。同步调用的超时检查不能强制中断一个不返回的自定义 Python 适配器；真实 API 的网络请求超时与重试将在阶段 5 实现。上下文超限时移除最旧的完整动作/结果组；任务和最新结果仍超限则明确停止，不静默丢弃最新结果。
 
-配置使用 UTF-8 JSON，可只覆盖部分预算；未知字段、重复字段、非正整数、布尔值与格式错误均被拒绝。文件、搜索、扫描、动作、提案大小和上下文预算已生效，测试预算待阶段 4 实现。模型服务地址和认证协议将在阶段 5 确定，当前不接受密钥字段，也不读取环境中的模型凭据。
+配置使用 UTF-8 JSON，可只覆盖部分预算；未知字段、重复字段、非正整数、布尔值与格式错误均被拒绝。文件、搜索、扫描、动作、提案大小、上下文和测试预算已生效。模型服务地址和认证协议将在阶段 5 确定，当前不接受密钥字段，也不读取环境中的模型凭据。
 
 `.env.example` 仅为未来环境变量的占位说明，程序不会自动加载 `.env`。不要在配置或命令行中保存真实密钥。
 
@@ -120,6 +120,35 @@ Copy-Item -Recurse .\examples\buggy_project .\examples\demo-stage3
 
 运行产物应保留到确认不再需要恢复为止。备份哈希检查用于发现损坏，不是防恶意修改本地日志的签名机制；不可信项目仍需更强的系统隔离。
 
+## 授权测试（阶段 4）
+
+仅对信任的项目开启测试：执行 pytest 就是在执行项目代码，不是安全沙箱。先创建示例副本和供该项目使用的虚拟环境，并自行安装 pytest；Agent 不安装依赖。
+
+```powershell
+Copy-Item -Recurse .\examples\buggy_project .\examples\demo-stage4
+py -3 -m venv .\examples\demo-stage4\.venv
+.\examples\demo-stage4\.venv\Scripts\python.exe -m pip install pytest
+.\.venv\Scripts\python.exe -m mini_agent run `
+  --project .\examples\demo-stage4 `
+  --task "average([]) 应返回 0" --model mock `
+  --allow-tests `
+  --test-python .\examples\demo-stage4\.venv\Scripts\python.exe
+```
+
+预期：基线 1 failed、1 passed；显示差异，输入 `y`；修复后 2 passed，状态 `verified`。恢复方式同上一节。解释器也可以位于项目外，但必须是用户指定的已有虚拟环境 Python；相对路径以启动目录为准，POSIX 虚拟环境的解释器符号链接保留原路径。
+
+控制器固定使用参数列表 `<python> -m pytest tests -q`、`shell=False`、目标项目为工作目录、标准输入关闭。模型只能请求 `{"type":"tool_call","name":"run_tests","arguments":{}}`，不能选择命令、解释器或 pytest 参数。测试执行默认关闭，只读模式不会启动测试进程。
+
+先运行基线，普通测试断言失败可继续修复；收集错误、缺少 pytest、不完整记录、超时或清理失败会停止。每个已批准的补丁自动测试，失败结果返回模型，后续提案仍逐次审批。Mock 只提出一次预设补丁，不会自主诊断其他问题。全部跳过、无测试、缺失或新增跳过的基线用例都不能用来认定修复成功。报告区分原有失败、已修复失败、剩余失败、新增失败和缺失用例；`verified` 只覆盖实际执行的测试范围。
+
+默认单次测试 60 秒，受整次运行剩余时间进一步限制；到期或取消后终止进程树并收尾。持续排空 stdout/stderr，仅保留前 32 KiB，截断显式标记；UTF-8 不完整或无效字节丢弃。pytest 结构化记录最多 1000 个用例、每个 ID 512 字符、总 ID 100000 字符，JSON 上限 256 KiB；超限标记不完整，不能判为通过。测试输出与项目文件同样是数据，不具有授权作用。
+
+Windows 在挂起状态创建解释器，先加入禁用 breakaway、关闭即终止的 Job Object，再恢复主线程；Linux 使用独立 session/process group。正常结束也清理遗留后代；测试覆盖子进程和孙进程的超时、取消及正常结束。进程清理另有短暂收尾时间。Linux 中主动 `setsid` 脱离进程组、通过系统服务另起进程等不在此可信项目执行器的隔离保证内。环境采用允许列表，移除模型/云凭据及继承的 Python/pytest 注入参数，并禁用第三方插件自动发现；项目显式配置及 `conftest.py` 仍会执行，也仍能访问用户权限允许的文件和网络。需要隔离的不可信项目应使用外部沙箱。
+
+每次测试保存 `test-001.json`（命令、退出码、超时、取消、截断、清理及用例）、`test-001-output.txt` 和可用时的 `test-001-results.json`。`test-output.txt` 为最新输出；基线和后续结果都保留，`summary.json/report.md` 包含比较与恢复入口。未授权时不会生成测试产物。
+
+实现参考 Python [subprocess 文档](https://docs.python.org/3/library/subprocess.html) 和 Microsoft [Job Objects 文档](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)。
+
 ## CI
 
 [GitHub Actions 工作流](.github/workflows/ci.yml) 在 push、pull request 或手动触发时运行，覆盖 Windows/Linux 与 Python 3.11、3.12、3.13、3.14。每个组合执行可编辑安装、CLI 检查、Agent 测试及示例基线检查，工作流只有仓库读取权限。
@@ -138,4 +167,6 @@ Copy-Item -Recurse .\examples\buggy_project .\examples\demo-stage3
 
 2026-10-13 阶段 3 本地验收：140 passed、1 skipped（Windows 不执行 POSIX FIFO）。示例副本通过真实 CLI 确认应用，Agent 正确返回 `unverified`；开发者单独运行副本测试得到 2 passed，随后通过 CLI 恢复，源码 SHA-256 与原始内容一致。该开发验证不代表 Agent 已实现测试执行器。
 
-下一步为阶段 4：固定 pytest 入口、测试授权、基线与修复后结果、超时、输出截断和进程树清理。现有阶段的单元测试和 CLI 集成测试均由跨平台 CI 自动执行。
+阶段 4 验收包括真实 CLI 的基线失败 → 审批应用 → 测试通过、哈希一致恢复、未授权不启动进程、敏感环境清理、输出洪泛截断、缺失依赖、非零退出、进程树清理及测试失败后再次审批修复。现有阶段的单元测试和集成测试均由跨平台 CI 自动执行。
+
+下一步为阶段 5：真实模型适配、凭据保护、发送范围确认及真实修复案例。

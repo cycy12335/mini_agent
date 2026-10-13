@@ -40,6 +40,9 @@ class MockAdapter:
         latest = next((m for m in reversed(messages) if m.get("role") == "tool"), {})
         accepted = latest.get("name") == "propose_edits" and latest.get("result", {}).get("ok")
         if accepted and latest["result"].get("data", {}).get("applied"):
+            tests = latest["result"]["data"].get("tests", {}).get("data", {})
+            if tests:
+                return {"type": "final", "message": "Mock 提案已应用；修复后测试" + ("通过。" if tests.get("passed") else "仍未通过，请检查报告。")}
             return {"type": "final", "message": "Mock 提案已获批准并应用；测试尚未执行，修复未验证。"}
         return {"type": "final", "message": ("Mock 已提出空列表返回 0 的修改建议；尚未应用或验证。" if accepted
                                                else "Mock 提案未被接受；没有修改或验证目标项目。")}

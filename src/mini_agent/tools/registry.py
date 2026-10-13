@@ -31,7 +31,7 @@ class ToolRegistry:
         if name == "propose_edits":
             return self._propose(args["edits"])
         return ToolResult(False, error_code="TESTS_UNAVAILABLE",
-                          message="Stage 3 does not execute tests, even with --allow-tests")
+                          message="Test execution requires the authorized controller")
 
     @result_boundary
     def _propose(self, edits: list[dict]) -> ToolResult:

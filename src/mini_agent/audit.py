@@ -51,7 +51,7 @@ class AuditLog:
             os.fsync(stream.fileno())
 
     def _path(self, name: str) -> Path:
-        if name not in {"events.jsonl", "proposals.json", "summary.json", "report.md", "proposal.diff", "manifest.json", "rollback.json"} and not re.fullmatch(r"proposal-\d{3,}\.diff", name):
+        if name not in {"events.jsonl", "proposals.json", "summary.json", "report.md", "proposal.diff", "manifest.json", "rollback.json", "test-output.txt"} and not re.fullmatch(r"(?:proposal-\d{3,}\.diff|test-\d{3,}(?:-results\.json|-output\.txt|\.json))", name):
             raise ValueError("Unsupported artifact name")
         path = self.directory / name
         _check_links(self.directory)
@@ -73,6 +73,6 @@ class AuditLog:
 
     def write_json(self, name: str, value) -> None:
         # Called only with controller-owned constant filenames.
-        if name not in {"proposals.json", "summary.json", "rollback.json"}:
+        if name not in {"proposals.json", "summary.json", "rollback.json"} and not re.fullmatch(r"test-\d{3,}\.json", name):
             raise ValueError("Unsupported artifact name")
         self.write_text(name, json.dumps(value, ensure_ascii=False, indent=2))

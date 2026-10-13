@@ -13,6 +13,7 @@ from .context import ContextLimitError, bounded_context
 from .models import ToolError, ToolResult
 from .patching import PatchManager
 from .tools.registry import ToolRegistry
+from .tools.tests import TestRunner, compare_results
 
 
 @dataclass(frozen=True)
@@ -25,18 +26,62 @@ class RunResult:
 
     @property
     def exit_code(self):
-        return {"proposed": 0, "unverified": 2, "failed": 1, "cancelled": 3}[self.status]
+        return {"verified": 0, "proposed": 0, "unverified": 2, "failed": 1, "cancelled": 3}[self.status]
 
 
 class AgentController:
     def __init__(self, adapter: ModelAdapter, registry: ToolRegistry, audit: AuditLog,
                  config: AgentConfig, *, clock: Callable = time.monotonic,
                  cancelled: Callable = lambda: False, read_only: bool = True,
-                 approve: Callable | None = None, display: Callable = lambda text: None):
+                 approve: Callable | None = None, display: Callable = lambda text: None,
+                 test_runner: TestRunner | None = None):
         self.adapter, self.registry, self.audit, self.config = adapter, registry, audit, config
         self.clock, self.cancelled = clock, cancelled
         self.patches = PatchManager(registry.files.policy, audit.directory, config, read_only=read_only)
         self.read_only, self.approve, self.display = read_only, approve, display
+        self.test_runner = test_runner if not read_only else None
+        self.baseline = self.latest_test = None
+        self.test_history = []
+        self.revision = 0
+        self.test_revision = -1
+
+    def _tests(self, phase):
+        if self.test_runner is None or not self.test_runner.authorized:
+            return ToolResult(False, error_code="TESTS_NOT_AUTHORIZED", message="Tests require explicit authorization")
+        index = len(self.test_history) + 1
+        remaining = self.config.run_timeout_seconds - (self.clock() - self.started_at)
+        result = self.test_runner.run(self.audit._path(f"test-{index:03}-results.json"),
+                                      cancelled=self.cancelled, timeout=remaining)
+        self.latest_test = result
+        self.test_revision = self.revision
+        if phase == "baseline":
+            self.baseline = result
+        data = {"phase": phase, **result.to_dict()}
+        self.test_history.append(data)
+        self.audit.write_text(f"test-{index:03}-output.txt", result.output)
+        self.audit.write_text("test-output.txt", result.output)
+        self.audit.write_json(f"test-{index:03}.json", data)
+        self.audit.record("tests", **data)
+        self.display(f"Tests ({phase}): exit={result.exit_code}, passed={result.passed}, timeout={result.timed_out}")
+        if result.cancelled:
+            raise ToolError("CANCELLED", "Test execution cancelled; inspect the report and recovery manifest")
+        if result.timed_out:
+            raise ToolError("TEST_TIMEOUT", "Test execution timed out")
+        if not result.cleanup_ok or result.error or not result.complete or result.exit_code not in {0, 1} or result.collection_errors:
+            raise ToolError("TEST_EXECUTION_ERROR", "Test execution or collection incomplete; inspect saved test output")
+        # Detailed per-case records stay in artifacts; bounded console output is feedback.
+        return ToolResult(True, {"passed": result.passed, "exit_code": result.exit_code,
+                                "output": result.output, "comparison": self._comparison()},
+                          message="Tests passed" if result.passed else "Tests did not pass", truncated=result.truncated)
+
+    def _comparison(self):
+        return compare_results(self.baseline, self.latest_test) if self.baseline and self.latest_test else None
+
+    def _verified(self):
+        comparison = self._comparison()
+        return bool(self.latest_test and self.latest_test.passed and self.test_revision == self.revision
+                    and comparison and comparison["comparable"]
+                    and not any(comparison[k] for k in ("unresolved_failures", "new_failures", "missing_cases", "newly_skipped")))
 
     def _proposal(self, result: ToolResult) -> ToolResult:
         proposal = self.patches.preview(self.registry.proposals[-1])
@@ -56,8 +101,12 @@ class AgentController:
         if self.clock() - self.started_at >= self.config.run_timeout_seconds:
             raise ToolError("TIME_LIMIT", "Time budget exhausted while awaiting approval; no write performed")
         files = self.patches.apply(proposal, approved)
+        self.revision += 1
         self.audit.record("patch_applied", proposal=index, files=files, tests="not_run")
-        return ToolResult(True, {**result.data, "applied": True}, message="Applied with approval; tests not run")
+        data = {**result.data, "applied": True}
+        if self.test_runner is not None and self.test_runner.authorized:
+            data["tests"] = self._tests("post_edit").to_dict()
+        return ToolResult(True, data, message="Applied with approval; see test evidence")
 
     def run(self, task: str) -> RunResult:
         start = self.clock()
@@ -69,6 +118,9 @@ class AgentController:
         self.audit.record("started", task=task, project=str(self.registry.files.policy.root),
                           mode="read_only" if self.read_only else "approval_required", tests="not_run", token_usage="unknown")
         try:
+            if self.test_runner is not None and self.test_runner.authorized:
+                baseline = self._tests("baseline")
+                messages.append({"role": "tool", "name": "run_tests", "result": baseline.to_dict()})
             while actions < self.config.max_actions:
                 if self.cancelled():
                     status, reason, message = "cancelled", "user_cancelled", "Run cancelled"
@@ -103,11 +155,15 @@ class AgentController:
                 if action["type"] == "final":
                     status = "proposed" if self.registry.read_files and (self.registry.proposals or not tool_errors) else "failed"
                     if self.patches.modified_files():
-                        status = "unverified"
+                        status = "verified" if self._verified() else ("failed" if self.latest_test else "unverified")
+                    elif self.latest_test and not self.latest_test.passed:
+                        status = "failed"
                     reason = "tool_error" if status == "failed" and tool_errors else "model_final"
+                    if status == "failed" and self.latest_test:
+                        reason = "tests_failed"
                     message = action["message"]
                     break
-                result = self.registry.execute(action)
+                result = self._tests("requested") if action["name"] == "run_tests" else self.registry.execute(action)
                 if action["name"] == "propose_edits" and result.ok:
                     result = self._proposal(result)
                 tool_errors += int(not result.ok)
@@ -125,6 +181,8 @@ class AgentController:
             reason, message = "context_limit", str(exc)
         except ToolError as exc:
             reason, message = exc.code.lower(), str(exc)
+            if exc.code == "CANCELLED":
+                status = "cancelled"
         except Exception as exc:
             # Never copy arbitrary adapter/IO exception strings (which may contain secrets).
             reason, message = "execution_error", f"Execution stopped ({type(exc).__name__})"
@@ -132,8 +190,13 @@ class AgentController:
         summary = {"status": status, "reason": reason, "message": message, "actions": actions,
                    "read_files": sorted(self.registry.read_files), "modified_files": self.patches.modified_files(),
                    "proposals": len(self.registry.proposals), "failed_tool_calls": tool_errors,
-                   "tests": "not_run", "test_command": None,
-                   "test_exit_code": None, "test_timed_out": False, "token_usage": "unknown"}
+                   "tests": (("passed" if self.latest_test.passed else "not_passed")
+                             if self.test_revision == self.revision else "not_run_after_latest_edit") if self.latest_test else "not_run",
+                   "test_command": self.latest_test.command if self.latest_test else None,
+                   "test_exit_code": self.latest_test.exit_code if self.latest_test else None,
+                   "test_timed_out": self.latest_test.timed_out if self.latest_test else False,
+                   "test_history": self.test_history, "comparison": self._comparison(),
+                   "token_usage": "unknown"}
         self.audit.record("finished", **summary)
         self.audit.write_json("summary.json", summary)
         self.audit.write_text("report.md",
@@ -142,7 +205,10 @@ class AgentController:
             f"Read files: {', '.join(summary['read_files']) or '(none)'}\n\n"
             f"Proposals: {summary['proposals']} (see proposals.json and proposal-*.diff)\n\n"
             f"Modified or recovery-pending files: {', '.join(summary['modified_files']) or 'none'}\n\n"
-            "Tests: NOT RUN; command/exit code: none; timeout: no.\n\n"
+            f"Tests: {summary['tests'].upper().replace('_', ' ')}; command: {summary['test_command']}; "
+            f"exit code: {summary['test_exit_code']}; timeout: {summary['test_timed_out']}.\n\n"
+            f"Baseline comparison: {summary['comparison']}\n\n"
+            "Per-run output, truncation, cancellation and cleanup: test-*.json / test-*-output.txt.\n\n"
             f"Recovery: mini-agent rollback --runs-dir \"{self.audit.directory.parent}\" --run-id {self.audit.run_id}\n\n"
-            "Stage 3 applies only approved proposals. Test execution is not implemented. Inspect manifest.json before recovery.\n")
+            "Verification covers only executed tests. Inspect manifest.json before recovery.\n")
         return result

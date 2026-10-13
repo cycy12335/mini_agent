@@ -13,12 +13,13 @@ from .audit import AuditLog, DEFAULT_RUNS_ROOT
 from .controller import AgentController
 from .tools.registry import ToolRegistry
 from .patching import PatchManager
+from .tools.tests import TestRunner, validate_interpreter
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mini-agent",
-        description="Mini Coding Agent — 阶段 3：差异审批、应用与恢复。",
+        description="Mini Coding Agent — 阶段 4：授权测试与修复反馈。",
     )
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -45,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--config", type=Path, help="UTF-8 JSON 预算配置")
     permissions = run.add_mutually_exclusive_group()
     permissions.add_argument("--read-only", action="store_true", help="只读模式")
-    permissions.add_argument("--allow-tests", action="store_true", help="显式允许未来的测试执行")
+    permissions.add_argument("--allow-tests", action="store_true", help="允许执行可信项目的测试代码（不是安全沙箱）")
     run.add_argument("--test-python", type=Path, help="目标项目虚拟环境解释器")
     run.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_ROOT,
                      help="本地审计目录，必须位于目标项目之外（模型不能指定）")
@@ -72,8 +73,9 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(args.config)
         if args.model != "mock":
             parser.error("真实 API 适配将在阶段 5 实现，当前仅支持 --model mock")
-        if args.allow_tests or args.test_python is not None:
-            parser.error("阶段 3 不支持测试执行；请移除 --allow-tests/--test-python")
+        if args.allow_tests != (args.test_python is not None):
+            parser.error("--allow-tests 与 --test-python 必须同时提供")
+        interpreter = validate_interpreter(args.test_python) if args.allow_tests else None
         audit = AuditLog(args.runs_dir, policy.root)
     except (OSError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
@@ -83,13 +85,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = AgentController(MockAdapter(), ToolRegistry(FileTools(policy, config)), audit, config,
                                  read_only=args.read_only, approve=lambda proposal: confirm("应用此提案？[y/N]: "),
-                                 display=print).run(args.task)
+                                 display=print, test_runner=TestRunner(policy, interpreter, config, authorized=True)
+                                 if interpreter else None).run(args.task)
     except (OSError, ValueError):
         print("状态：failed；记录或执行失败，报告可能不完整。请检查运行目录中的 manifest.json 和备份。")
         return 1
     print(f"状态：{result.status} ({result.reason})")
     print(result.message)
-    print("测试：未执行；应用与恢复状态请查看报告及 manifest.json。")
+    print("测试、应用与恢复状态请查看报告及 manifest.json。")
     print(f"报告：{result.report}")
     return result.exit_code
 
