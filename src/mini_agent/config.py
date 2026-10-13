@@ -3,6 +3,7 @@
 from dataclasses import dataclass, fields
 import json
 from pathlib import Path
+from .api_config import APIConfig, parse_api_config
 
 
 class ConfigError(ValueError):
@@ -11,6 +12,7 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class AgentConfig:
+    api: APIConfig | None = None
     max_actions: int = 20
     model_timeout_seconds: int = 60
     run_timeout_seconds: int = 600
@@ -28,6 +30,10 @@ class AgentConfig:
     def __post_init__(self) -> None:
         for field in fields(self):
             value = getattr(self, field.name)
+            if field.name == "api":
+                if value is not None and not isinstance(value, APIConfig):
+                    raise ConfigError("api must be validated API configuration")
+                continue
             if type(value) is not int or value <= 0:
                 raise ConfigError(f"{field.name} must be a positive integer")
 
@@ -55,4 +61,9 @@ def load_config(path: Path | None = None) -> AgentConfig:
     unknown = data.keys() - {field.name for field in fields(AgentConfig)}
     if unknown:
         raise ConfigError("Configuration contains unsupported fields")
+    if "api" in data:
+        try:
+            data["api"] = parse_api_config(data["api"])
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
     return AgentConfig(**data)

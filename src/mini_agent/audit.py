@@ -27,7 +27,8 @@ class AuditLog:
         instance.events = directory / "events.jsonl"
         return instance
 
-    def __init__(self, runs_root: Path, project: Path):
+    def __init__(self, runs_root: Path, project: Path, *, redactor=None):
+        self.redactor = redactor
         destination = runs_root.absolute()
         # Check existing ancestors before mkdir, including the destination itself.
         for parent in (*reversed(destination.parents), destination):
@@ -45,6 +46,8 @@ class AuditLog:
 
     def record(self, event: str, **data) -> None:
         entry = {"time": datetime.now(timezone.utc).isoformat(), "event": event, **data}
+        if getattr(self, "redactor", None):
+            entry = self.redactor.value(entry)
         with self._path("events.jsonl").open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
             stream.flush()
@@ -69,10 +72,14 @@ class AuditLog:
 
     def write_text(self, name: str, text: str) -> None:
         from .patching import atomic_write
+        if getattr(self, "redactor", None) and not name.endswith(".json"):
+            text = self.redactor.text(text)
         atomic_write(self._path(name), text.encode("utf-8"))
 
     def write_json(self, name: str, value) -> None:
         # Called only with controller-owned constant filenames.
-        if name not in {"proposals.json", "summary.json", "rollback.json"} and not re.fullmatch(r"test-\d{3,}\.json", name):
+        if name not in {"proposals.json", "summary.json", "rollback.json"} and not re.fullmatch(r"test-\d{3,}(?:-results)?\.json", name):
             raise ValueError("Unsupported artifact name")
+        if getattr(self, "redactor", None):
+            value = self.redactor.value(value)
         self.write_text(name, json.dumps(value, ensure_ascii=False, indent=2))

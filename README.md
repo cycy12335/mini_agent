@@ -2,7 +2,7 @@
 
 遵循 [PLAN.md](PLAN.md) 的 Python 命令行编程 Agent。当前完成阶段 0–4：只读工具、离线 Mock 循环、差异预览、审批、备份、应用、恢复与授权测试反馈。
 
-`files` 可用于浏览目标项目，`run --model mock` 可跑通预设示例并在确认后应用补丁。显式授权测试后，先保存基线，再自动测试每次已批准的修改。`inspect` 查看记录，`rollback` 预览并确认恢复。Mock 是固定演示，不是通用模型；任务描述会记录在会话中，但不会改变预设修复策略。真实模型 API 将在阶段 5 实现。
+`files` 可用于浏览目标项目，`run --model mock` 可跑通预设示例并在确认后应用补丁。显式授权测试后，先保存基线，再自动测试每次已批准的修改。`inspect` 查看记录，`rollback` 预览并确认恢复。Mock 是固定演示，不是通用模型；任务描述会记录在会话中，但不会改变预设修复策略。阶段 5 已加入 `--model api`、发送范围审批与 HTTP 适配器；真实模型验收状态见文末。
 
 ## 环境与安装
 
@@ -54,7 +54,7 @@ $env:PYTEST_DEBUG_TEMPROOT = (Resolve-Path .pytest-tmp).Path
   --read-only
 ```
 
-上述只读命令正常结束为 `proposed`，退出码 0；显示差异但不会请求写入或应用。去掉 `--read-only` 后，每次提案显示差异并询问 `应用此提案？[y/N]`；只有输入 `y` 才会应用，空输入、其他回答或输入结束均拒绝。未授权测试时批准应用后状态为 `unverified`、退出码 2，拒绝为 `cancelled`、退出码 3。`--allow-tests` 与 `--test-python` 必须同时提供，且不能和 `--read-only` 同用；`--model api` 暂不可用。项目根通过完整路径权限检查，不会先消除符号链接再校验。
+上述只读命令正常结束为 `proposed`，退出码 0；显示差异但不会请求写入或应用。去掉 `--read-only` 后，每次提案显示差异并询问 `应用此提案？[y/N]`；只有输入 `y` 才会应用，空输入、其他回答或输入结束均拒绝。未授权测试时批准应用后状态为 `unverified`、退出码 2，拒绝为 `cancelled`、退出码 3。`--allow-tests` 与 `--test-python` 必须同时提供，且不能和 `--read-only` 同用。`--model api` 需要 API 配置、环境变量凭据及发送范围确认。项目根通过完整路径权限检查，不会先消除符号链接再校验。
 
 产物默认保存在 Agent 项目的 `.mini-agent/runs/<run-id>/`：`events.jsonl` 记录动作、工具结果、格式错误和结束事件；`proposals.json` 保存已接受的完整文件替换提案（没有提案时不生成）；`summary.json` 与 `report.md` 列出状态、已读文件、提案数及未验证限制。日志可能包含源码，默认被 Git 忽略。源码中的提示文本只作为数据，不改变工具权限。
 
@@ -70,11 +70,11 @@ $env:PYTEST_DEBUG_TEMPROOT = (Resolve-Path .pytest-tmp).Path
 
 非法 JSON、未知工具、缺参、多余字段或不合法类型最多允许一次纠正；再次无效结束为 `failed`。每次模型调用（包括无效动作和 final）占用一步，默认最多 20 步。支持 Ctrl+C 取消（`cancelled`，退出码 3）、步数/上下文/运行时间超限和执行错误（`failed`，退出码 1）。`proposed` 仅表示已有读取依据的未验证结论，是否生成提案应查看报告中的提案数。模型文字不决定测试状态：未执行时为 `not_run`；只有最新修改经过实际测试且基线比较满足要求，控制器才返回 `verified`、退出码 0。
 
-时间预算在调度前和适配器返回后检查；当前 Mock 是即时本地逻辑，没有后台线程或进程。同步调用的超时检查不能强制中断一个不返回的自定义 Python 适配器；真实 API 的网络请求超时与重试将在阶段 5 实现。上下文超限时移除最旧的完整动作/结果组；任务和最新结果仍超限则明确停止，不静默丢弃最新结果。
+时间预算在调度前和适配器返回后检查；Mock 是即时本地逻辑。HTTP 适配器为请求及其重试共享一个截止时间，连接后可中断慢响应；系统 DNS 解析仍受操作系统控制，返回后会再次检查预算，超时不发送正文。同步调用的外层检查不能强制中断任意自定义 Python 适配器。上下文超限时移除最旧的完整动作/结果组；任务和最新结果仍超限则明确停止，不静默丢弃最新结果。
 
-配置使用 UTF-8 JSON，可只覆盖部分预算；未知字段、重复字段、非正整数、布尔值与格式错误均被拒绝。文件、搜索、扫描、动作、提案大小、上下文和测试预算已生效。模型服务地址和认证协议将在阶段 5 确定，当前不接受密钥字段，也不读取环境中的模型凭据。
+配置使用 UTF-8 JSON，可只覆盖部分预算；未知字段、重复字段、非法类型与格式错误均被拒绝，预算要求正整数。文件、搜索、扫描、动作、提案大小、上下文和测试预算已生效。可选 `api` 对象配置非敏感的服务地址、模型、协议、凭据环境变量名及请求预算，配置文件不接受密钥值。Mock 模式不读取模型凭据、不联网。
 
-`.env.example` 仅为未来环境变量的占位说明，程序不会自动加载 `.env`。不要在配置或命令行中保存真实密钥。
+`.env.example` 为环境变量的占位说明，程序不会自动加载 `.env`。不要在配置或命令行参数中保存真实密钥。
 
 ## 只读工具（阶段 1）
 
@@ -90,7 +90,7 @@ $env:PYTEST_DEBUG_TEMPROOT = (Resolve-Path .pytest-tmp).Path
 
 默认上限：读取 64 KiB、搜索 100 条、文件列表 1000 个、扫描 10000 个目录项、目录深度 32；列表路径和搜索片段文本合计上限为 32768 字符（不含 JSON 字段开销）。达到扫描或结果上限时标记 `truncated`。被路径规则过滤的条目以及搜索中无法读取的候选文件计入 `skipped`，因此无匹配不表示被跳过的文件也已检查。
 
-`files` 子命令不存在写入、命令执行或模型调用入口。文件名过滤不能识别任意源码中内嵌的秘密；这些检查不能抵御恶意并发文件系统替换，也不是操作系统沙箱。真实模型发送范围与脱敏将在后续阶段实现。
+`files` 子命令不存在写入、命令执行或模型调用入口。文件名过滤不能识别任意源码中内嵌的秘密；这些检查不能抵御恶意并发文件系统替换，也不是操作系统沙箱。API 模式另有发送范围与凭据特征检查，见下文。
 
 ## 应用与恢复（阶段 3）
 
@@ -149,6 +149,47 @@ Windows 在挂起状态创建解释器，先加入禁用 breakaway、关闭即�
 
 实现参考 Python [subprocess 文档](https://docs.python.org/3/library/subprocess.html) 和 Microsoft [Job Objects 文档](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)。
 
+## 真实模型（阶段 5）
+
+本项目选用 **DeepSeek V4.1 Flash**，官方 API 模型 ID 为 `deepseek-flash`；使用 `https://api.deepseek.com/responses` 的 Responses 协议。[模型官方说明](https://api-docs.deepseek.com/news/news260910/)、[DeepSeek Responses 接口](https://api-docs.deepseek.com/api/create-response/)。
+
+`agent.api.example.json` 已配置该服务、`reasoning_effort: low`、8192 输出 token、1 MiB 响应上限和最多 2 次临时错误重试。模型和地址均可配置。预算包括推理 token，但不保存或发送模型返回的隐藏推理。API 会产生服务费用；token 用量只依据响应提供的数据累计，缺失部分明确标记未知，不做精确费用承诺。
+
+在 PowerShell 中输入密钥，仅保留在当前终端的环境变量中：
+
+```powershell
+$secureKey = Read-Host 'DeepSeek API Key' -AsSecureString
+$env:MINI_AGENT_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password
+```
+
+如果已经存入 Windows 用户环境变量，但当前终端是在设置前打开的，可重新打开终端，或执行 `$env:MINI_AGENT_API_KEY = [Environment]::GetEnvironmentVariable('MINI_AGENT_API_KEY', 'User')`。程序只读取进程环境变量，不自动扫描凭据文件或系统存储。
+
+复制全新示例，先手动准备测试虚拟环境（Agent 不安装依赖）：
+
+```powershell
+Copy-Item -Recurse .\examples\buggy_project .\examples\demo-stage5
+py -3 -m venv .\examples\demo-stage5\.venv
+.\examples\demo-stage5\.venv\Scripts\python.exe -m pip install pytest
+.\.venv\Scripts\python.exe -m mini_agent run `
+  --project .\examples\demo-stage5 `
+  --task "修复 average([]) 崩溃，空列表返回 0，保留非空输入行为" `
+  --model api --config .\agent.api.example.json `
+  --send-path src --send-path tests `
+  --allow-tests --test-python .\examples\demo-stage5\.venv\Scripts\python.exe
+```
+
+先审核接收服务、模型和文件清单，输入 `y` 同意发送；然后在每个补丁的差异展示后单独确认。拒绝发送会在任何模型请求或项目测试之前结束。`--read-only` 仍需发送授权，但不会执行测试或写入源码。没有密钥会直接报配置错误，不发起网络请求。
+
+`--send-path` 可重复指定项目内相对文件或目录；默认列出全部符合文件策略的候选文件供审批，不自动上传全部内容。首次请求含任务、工具说明和已批准文件名；内容由模型通过受控工具按需读取。范围在运行开始时固定，新增或范围外文件不能被读取、搜索返回或修改；扩大范围需要重新启动并确认。库存超限必须缩小范围，不能批准截断的不完整清单。
+
+发送授权还涵盖工具结果、补丁结果和已授权测试输出；测试代码可能自行输出其他内容，因此文件清单不是对任意测试输出来源的隔离保证。已知 API 凭据、常见密钥格式与凭据赋值文本会脱敏；含这些特征的源文件直接禁止自动发送和修改，避免脱敏文本被当作真实源码写回。规则可能误报，也无法识别所有自定义秘密，发送前应人工确认范围。审计不记录 Authorization、原始 HTTP 错误正文、完整模型响应或隐藏推理；日志与报告保留可验证动作及用量。
+
+适配器采用标准库 HTTP/TLS，验证证书；不跟随重定向，不继承代理环境、Cookie 或认证处理器。远程地址必须为 HTTPS，拒绝 URL 凭据、查询参数和片段；仅回环地址允许 HTTP，用于本地集成测试。认证失败不重试；限流、部分 5xx/408 和临时连接故障最多重试 2 次，且共用单次模型及整次运行剩余预算。输出字节超限、截断、拒绝和异常响应会明确失败；动作结构仍执行原有严格校验，最多一次格式纠正。
+
+内部工具协议不直接授予服务端工具能力：请求要求返回一个 JSON `tool_call` 或 `final` 对象，所有动作在本地验证。使用 JSON 模式而非假定服务一定遵循动作 schema；不支持的字段、路径或任意 shell 请求均拒绝。可配置的 `chat_completions` 分支使用 OpenAI 的 `response_format` / `max_completion_tokens`；其他兼容服务需逐项核对支持情况，本项目 DeepSeek 配置使用 Responses 分支。[DeepSeek 兼容性说明](https://api-docs.deepseek.com/guides/responses_api/)、[OpenAI JSON 模式说明](https://developers.openai.com/api/docs/guides/structured-outputs)。
+
+结束后可清除当前终端的密钥变量：`Remove-Item Env:MINI_AGENT_API_KEY`。这不会删除之前设置的 Windows 用户环境变量。
+
 ## CI
 
 [GitHub Actions 工作流](.github/workflows/ci.yml) 在 push、pull request 或手动触发时运行，覆盖 Windows/Linux 与 Python 3.11、3.12、3.13、3.14。每个组合执行可编辑安装、CLI 检查、Agent 测试及示例基线检查，工作流只有仓库读取权限。
@@ -169,4 +210,4 @@ Windows 在挂起状态创建解释器，先加入禁用 breakaway、关闭即�
 
 阶段 4 验收包括真实 CLI 的基线失败 → 审批应用 → 测试通过、哈希一致恢复、未授权不启动进程、敏感环境清理、输出洪泛截断、缺失依赖、非零退出、进程树清理及测试失败后再次审批修复。现有阶段的单元测试和集成测试均由跨平台 CI 自动执行。
 
-下一步为阶段 5：真实模型适配、凭据保护、发送范围确认及真实修复案例。
+阶段 5 代码已实现，离线 HTTP 集成覆盖协议转换、授权拒绝、范围锁定、脱敏、认证失败、限流重试、慢响应超时/取消、格式异常及端到端修复。脚本服务与 Mock 通过不能替代真实模型验收；真实 DeepSeek 修复案例尚待执行并记录，完成后再进入阶段 6。

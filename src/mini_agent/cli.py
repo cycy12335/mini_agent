@@ -14,12 +14,14 @@ from .controller import AgentController
 from .tools.registry import ToolRegistry
 from .patching import PatchManager
 from .tools.tests import TestRunner, validate_interpreter
+from .adapters.http_api import HTTPAdapter, load_api_key
+from .privacy import Redactor, ScopedFiles, disclosure_files
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mini-agent",
-        description="Mini Coding Agent — 阶段 4：授权测试与修复反馈。",
+        description="Mini Coding Agent — 阶段 5：真实模型、发送审批与修复反馈。",
     )
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -38,11 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
         stored = commands.add_parser(command, help="查看运行记录" if command == "inspect" else "预览并确认恢复")
         stored.add_argument("--run-id", required=True)
         stored.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_ROOT)
-    run = commands.add_parser("run", help="运行离线 Mock 示例；修改必须逐次确认")
+    run = commands.add_parser("run", help="运行 Mock 或真实 API；发送和修改分别确认")
     run.add_argument("--project", type=Path, required=True, help="目标项目目录")
     run.add_argument("--task", required=True, help="bug 描述")
     run.add_argument("--model", choices=("mock", "api"), default="mock",
-                     help="预留模型选择；当前均不发起调用")
+                     help="mock 离线演示；api 使用配置中的模型服务")
+    run.add_argument("--send-path", action="append", help="API 可发送的相对文件或目录，可重复；默认列出所有合规候选文件供确认")
     run.add_argument("--config", type=Path, help="UTF-8 JSON 预算配置")
     permissions = run.add_mutually_exclusive_group()
     permissions.add_argument("--read-only", action="store_true", help="只读模式")
@@ -71,22 +74,49 @@ def main(argv: list[str] | None = None) -> int:
         if not args.task.strip() or len(args.task) > 4096:
             parser.error("--task 需要 1–4096 个字符")
         config = load_config(args.config)
-        if args.model != "mock":
-            parser.error("真实 API 适配将在阶段 5 实现，当前仅支持 --model mock")
+        if args.model == "api" and config.api is None:
+            parser.error("--model api 需要 --config 中的 api 配置；参考 agent.api.example.json")
+        if args.model == "mock" and args.send_path:
+            parser.error("--send-path 仅用于 --model api")
         if args.allow_tests != (args.test_python is not None):
             parser.error("--allow-tests 与 --test-python 必须同时提供")
         interpreter = validate_interpreter(args.test_python) if args.allow_tests else None
-        audit = AuditLog(args.runs_dir, policy.root)
+        files = FileTools(policy, config)
+        redactor = None
+        manifest = None
+        adapter = MockAdapter()
+        if args.model == "api":
+            key = load_api_key(config.api)
+            redactor = Redactor([key])
+            manifest = disclosure_files(files, args.send_path)
+            # Do not disclose credential-like filenames/endpoint configuration either.
+            if redactor.value(manifest) != manifest or redactor.text(config.api.endpoint) != config.api.endpoint:
+                parser.error("发送配置或文件清单包含疑似凭据，请先移除")
+            files = ScopedFiles(policy, config, manifest, redactor)
+            adapter = HTTPAdapter(config.api, key=key, timeout=config.model_timeout_seconds, redactor=redactor)
+        audit = AuditLog(args.runs_dir, policy.root, redactor=redactor)
     except (OSError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
-    print("Mock 为预设的 average 空列表演示，不是通用模型。")
+    if args.model == "mock":
+        print("Mock 为预设的 average 空列表演示，不是通用模型。")
     print("只读模式：仅显示提案。" if args.read_only else "每次修改先显示差异，再请求确认；默认拒绝。")
     print(f"运行目录：{audit.directory}", flush=True)
+    def approve_disclosure():
+        print(f"模型服务：{config.api.endpoint}\n协议：{config.api.protocol}\n模型：{config.api.model}")
+        print("允许模型按需读取的文件（不会自动上传全部内容）：\n" + "\n".join(manifest))
+        print("将发送任务、上述范围内按需读取的内容、工具结果及已授权测试的输出；测试输出可能包含项目运行产生的其他内容。")
+        print("后续新增文件需重新启动并确认范围。API 请求可能产生服务费用；日志不保存凭据或模型隐藏推理。")
+        approved = confirm("同意向该服务发送以上数据范围？[y/N]: ")
+        audit.record("disclosure_approval", endpoint=config.api.endpoint, model=config.api.model,
+                     protocol=config.api.protocol, files=manifest, approved=approved)
+        adapter.authorized = approved
+        return approved
     try:
-        result = AgentController(MockAdapter(), ToolRegistry(FileTools(policy, config)), audit, config,
+        result = AgentController(adapter, ToolRegistry(files), audit, config,
                                  read_only=args.read_only, approve=lambda proposal: confirm("应用此提案？[y/N]: "),
                                  display=print, test_runner=TestRunner(policy, interpreter, config, authorized=True)
-                                 if interpreter else None).run(args.task)
+                                 if interpreter else None, before_run=approve_disclosure if manifest is not None else None,
+                                 project_files=manifest).run(args.task)
     except (OSError, ValueError):
         print("状态：failed；记录或执行失败，报告可能不完整。请检查运行目录中的 manifest.json 和备份。")
         return 1
