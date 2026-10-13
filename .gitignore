@@ -1,0 +1,11 @@
+.venv/
+.env*
+!.env.example
+agent.config.json
+.mini-agent/
+__pycache__/
+.pytest_cache/
+.pytest-tmp/
+*.egg-info/
+build/
+dist/

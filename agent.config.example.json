@@ -1,0 +1,15 @@
+{
+  "max_actions": 20,
+  "model_timeout_seconds": 60,
+  "run_timeout_seconds": 600,
+  "max_file_bytes": 65536,
+  "max_search_hits": 100,
+  "max_edit_files": 5,
+  "test_timeout_seconds": 60,
+  "max_test_output_bytes": 32768,
+  "max_context_chars": 100000,
+  "max_files": 1000,
+  "max_scan_entries": 10000,
+  "max_directory_depth": 32,
+  "max_tool_output_chars": 32768
+}
