@@ -1,4 +1,4 @@
-"""Explicit non-secret API configuration; credentials never belong in JSON."""
+"""Non-secret service settings; credentials are loaded from a separate local file."""
 
 from dataclasses import dataclass
 import re
@@ -32,7 +32,7 @@ class APIConfig:
             raise ValueError("API endpoint must be HTTPS without credentials, query or fragment (loopback HTTP allowed)")
         if not isinstance(self.model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,199}", self.model):
             raise ValueError("Invalid API model name")
-        if not isinstance(self.api_key_env, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}", self.api_key_env):
+        if not isinstance(self.api_key_env, str) or (self.api_key_env and not re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}", self.api_key_env)):
             raise ValueError("Invalid API key environment variable name")
         for name in ("max_output_tokens", "max_response_bytes"):
             if type(getattr(self, name)) is not int or getattr(self, name) <= 0:

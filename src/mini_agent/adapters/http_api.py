@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import http.client
 import json
 import os
+from pathlib import Path
 import re
 import socket
 import ssl
@@ -13,6 +14,7 @@ from urllib.parse import urlsplit
 
 from ..api_config import APIConfig
 from ..models import ToolError
+from ..policy import _check_links
 from ..privacy import Redactor
 from ..prompts import INSTRUCTIONS
 
@@ -90,10 +92,40 @@ class HTTPTransport:
                 watchdog.join(timeout=1)
 
 
+CREDENTIALS_FILE = Path(__file__).resolve().parents[3] / "agent.credentials.json"
+
+
+def _credential_object(pairs):
+    data = {}
+    for name, value in pairs:
+        if name in data:
+            raise ValueError("Duplicate credential field")
+        data[name] = value
+    return data
+
+
 def load_api_key(config):
-    key = os.environ.get(config.api_key_env, "")
-    if not key or len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key):
-        raise ModelError("MODEL_CREDENTIAL_MISSING", "Set the configured API key environment variable to a valid credential")
+    # Read on every run; never include credential values in errors or configuration.
+    key = ""
+    if CREDENTIALS_FILE.exists() or CREDENTIALS_FILE.is_symlink():
+        try:
+            _check_links(CREDENTIALS_FILE)
+            if CREDENTIALS_FILE.stat().st_nlink > 1:
+                raise ValueError("Linked credential file")
+            with CREDENTIALS_FILE.open("rb") as stream:
+                raw = stream.read(16385)
+            if len(raw) > 16384:
+                raise ValueError("Credential file too large")
+            data = json.loads(raw.decode("utf-8-sig"), object_pairs_hook=_credential_object)
+            if not isinstance(data, dict) or set(data) != {"api_key"} or not isinstance(data["api_key"], str):
+                raise ValueError("Invalid credential fields")
+            key = data["api_key"]
+        except (OSError, ValueError, RuntimeError, RecursionError):
+            raise ModelError("MODEL_CREDENTIAL_INVALID", "Cannot read agent.credentials.json; expected UTF-8 JSON with only a string api_key field") from None
+    if not key:
+        key = os.environ.get(config.api_key_env, "") if config.api_key_env else ""
+    if not key or key == config.api_key_env or len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key):
+        raise ModelError("MODEL_CREDENTIAL_MISSING", "Set the actual secret value in agent.credentials.json or the configured environment variable; the variable name is not a credential")
     return key
 
 
@@ -102,7 +134,7 @@ class HTTPAdapter:
                  redactor=None, authorized=False):
         self.config = config
         self._key = load_api_key(config) if key is None else key
-        if not isinstance(self._key, str) or not self._key or any(ord(c) < 33 or ord(c) > 126 for c in self._key):
+        if not isinstance(self._key, str) or not self._key or self._key == config.api_key_env or len(self._key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in self._key):
             raise ModelError("MODEL_CREDENTIAL_MISSING", "Invalid API credential")
         self.timeout = timeout
         self.transport = transport or HTTPTransport()

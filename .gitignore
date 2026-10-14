@@ -10,3 +10,5 @@ examples/demo-stage*/
 *.egg-info/
 build/
 dist/
+
+agent.credentials.json

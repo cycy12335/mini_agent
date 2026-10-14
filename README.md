@@ -54,7 +54,7 @@ $env:PYTEST_DEBUG_TEMPROOT = (Resolve-Path .pytest-tmp).Path
   --read-only
 ```
 
-上述只读命令正常结束为 `proposed`，退出码 0；显示差异但不会请求写入或应用。去掉 `--read-only` 后，每次提案显示差异并询问 `应用此提案？[y/N]`；只有输入 `y` 才会应用，空输入、其他回答或输入结束均拒绝。未授权测试时批准应用后状态为 `unverified`、退出码 2，拒绝为 `cancelled`、退出码 3。`--allow-tests` 与 `--test-python` 必须同时提供，且不能和 `--read-only` 同用。`--model api` 需要 API 配置、环境变量凭据及发送范围确认。项目根通过完整路径权限检查，不会先消除符号链接再校验。
+上述只读命令正常结束为 `proposed`，退出码 0；显示差异但不会请求写入或应用。去掉 `--read-only` 后，每次提案显示差异并询问 `应用此提案？[y/N]`；只有输入 `y` 才会应用，空输入、其他回答或输入结束均拒绝。未授权测试时批准应用后状态为 `unverified`、退出码 2，拒绝为 `cancelled`、退出码 3。`--allow-tests` 与 `--test-python` 必须同时提供，且不能和 `--read-only` 同用。`--model api` 需要 API 配置、本地密钥文件或环境变量凭据及发送范围确认。项目根通过完整路径权限检查，不会先消除符号链接再校验。
 
 产物默认保存在 Agent 项目的 `.mini-agent/runs/<run-id>/`：`events.jsonl` 记录动作、工具结果、格式错误和结束事件；`proposals.json` 保存已接受的完整文件替换提案（没有提案时不生成）；`summary.json` 与 `report.md` 列出状态、已读文件、提案数及未验证限制。日志可能包含源码，默认被 Git 忽略。源码中的提示文本只作为数据，不改变工具权限。
 
@@ -72,7 +72,7 @@ $env:PYTEST_DEBUG_TEMPROOT = (Resolve-Path .pytest-tmp).Path
 
 时间预算在调度前和适配器返回后检查；Mock 是即时本地逻辑。HTTP 适配器为请求及其重试共享一个截止时间，连接后可中断慢响应；系统 DNS 解析仍受操作系统控制，返回后会再次检查预算，超时不发送正文。同步调用的外层检查不能强制中断任意自定义 Python 适配器。上下文超限时移除最旧的完整动作/结果组；任务和最新结果仍超限则明确停止，不静默丢弃最新结果。
 
-配置使用 UTF-8 JSON，可只覆盖部分预算；未知字段、重复字段、非法类型与格式错误均被拒绝，预算要求正整数。文件、搜索、扫描、动作、提案大小、上下文和测试预算已生效。可选 `api` 对象配置非敏感的服务地址、模型、协议、凭据环境变量名及请求预算，配置文件不接受密钥值。Mock 模式不读取模型凭据、不联网。
+配置使用 UTF-8 JSON，可只覆盖部分预算；未知字段、重复字段、非法类型与格式错误均被拒绝，预算要求正整数。文件、搜索、扫描、动作、提案大小、上下文和测试预算已生效。可选 `api` 对象配置非敏感的服务地址、模型、协议、凭据环境变量名及请求预算，服务配置文件不接受密钥值，密钥单独放在项目根目录的 `agent.credentials.json`。Mock 模式不读取模型凭据、不联网。
 
 `.env.example` 为环境变量的占位说明，程序不会自动加载 `.env`。不要在配置或命令行参数中保存真实密钥。
 
@@ -155,14 +155,17 @@ Windows 在挂起状态创建解释器，先加入禁用 breakaway、关闭即�
 
 `agent.api.example.json` 已配置该服务、`reasoning_effort: low`、8192 输出 token、1 MiB 响应上限和最多 2 次临时错误重试。模型和地址均可配置。预算包括推理 token，但不保存或发送模型返回的隐藏推理。API 会产生服务费用；token 用量只依据响应提供的数据累计，缺失部分明确标记未知，不做精确费用承诺。
 
-在 PowerShell 中输入密钥，仅保留在当前终端的环境变量中：
+直接编辑项目根目录的 **`agent.credentials.json`**，把 `api_key` 的空字符串换成自己的密钥，保存后照常运行 API 模式：
 
-```powershell
-$secureKey = Read-Host 'DeepSeek API Key' -AsSecureString
-$env:MINI_AGENT_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password
+```json
+{
+  "api_key": "在这里填写你的 API Key"
+}
 ```
 
-如果已经存入 Windows 用户环境变量，但当前终端是在设置前打开的，可重新打开终端，或执行 `$env:MINI_AGENT_API_KEY = [Environment]::GetEnvironmentVariable('MINI_AGENT_API_KEY', 'User')`。程序只读取进程环境变量，不自动扫描凭据文件或系统存储。
+程序每次启动会重新读取这个文件，不需要设置 PowerShell 环境变量，也不需要重启终端。文件已加入 `.gitignore`，不会作为项目文件发送给模型；密钥仍参与日志及输出脱敏。密钥以明文保存在本机，请勿提交或分享该文件。服务地址、模型与请求预算仍放在 `agent.api.example.json`。
+
+读取优先级：文件中的非空 `api_key` 优先；文件不存在或密钥为空时，回退读取 `api.api_key_env` 指定的环境变量（默认 `MINI_AGENT_API_KEY`）。`api_key_env` 设为空字符串可禁用环境变量回退。密钥文件只允许一个字符串字段 `api_key`，格式错误会直接报错而不会联网。`api_key` 必须填写平台生成的实际密钥，不能填变量名 `MINI_AGENT_API_KEY`；这种误填也会在联网前拒绝。`.env` 和 `.env.example` 仍不会自动加载。
 
 复制全新示例，先手动准备测试虚拟环境（Agent 不安装依赖）：
 
@@ -188,7 +191,7 @@ py -3 -m venv .\examples\demo-stage5\.venv
 
 内部工具协议不直接授予服务端工具能力：请求要求返回一个 JSON `tool_call` 或 `final` 对象，所有动作在本地验证。使用 JSON 模式而非假定服务一定遵循动作 schema；不支持的字段、路径或任意 shell 请求均拒绝。可配置的 `chat_completions` 分支使用 OpenAI 的 `response_format` / `max_completion_tokens`；其他兼容服务需逐项核对支持情况，本项目 DeepSeek 配置使用 Responses 分支。[DeepSeek 兼容性说明](https://api-docs.deepseek.com/guides/responses_api/)、[OpenAI JSON 模式说明](https://developers.openai.com/api/docs/guides/structured-outputs)。
 
-结束后可清除当前终端的密钥变量：`Remove-Item Env:MINI_AGENT_API_KEY`。这不会删除之前设置的 Windows 用户环境变量。
+使用环境变量的用户仍可用 `Remove-Item Env:MINI_AGENT_API_KEY` 清除当前终端变量。使用文件的用户可清空 `agent.credentials.json` 的 `api_key`；不会自动删除 Windows 用户环境变量。
 
 ## CI
 

@@ -9,7 +9,7 @@ import pytest
 
 from mini_agent.actions import TOOL_SCHEMAS
 from mini_agent.adapters.http_api import HTTPAdapter, HTTPResult, HTTPTransport, ModelError
-from mini_agent.adapters.mock import MockAdapter
+from mini_agent.adapters.mock import MockAdapter, call
 from mini_agent.api_config import APIConfig
 from mini_agent.audit import AuditLog
 from mini_agent.cli import main
@@ -20,6 +20,12 @@ from mini_agent.policy import PolicyGuard
 from mini_agent.tools.files import FileTools
 from mini_agent.tools.registry import ToolRegistry
 from mini_agent.tools.tests import TestRunner
+
+
+@pytest.fixture(autouse=True)
+def isolated_local_credentials(tmp_path, monkeypatch):
+    # The developer's actual credential file must never affect tests.
+    monkeypatch.setattr("mini_agent.adapters.http_api.CREDENTIALS_FILE", tmp_path / "agent.credentials.json")
 
 
 KEY = "test-credential-never-log-this"
@@ -342,3 +348,71 @@ def test_deepseek_example_matches_official_responses_contract():
     assert payload["reasoning"] == {"effort": "low"}
     assert payload["text"]["format"] == {"type": "json_object"}
     assert "max_tokens" not in payload and payload["max_output_tokens"] == 8192
+
+
+def test_local_credential_reread_priority_and_environment_fallback(tmp_path, monkeypatch):
+    from mini_agent.adapters.http_api import load_api_key
+    path = tmp_path / "agent.credentials.json"
+    config = APIConfig("https://example.com/responses", "test")
+    monkeypatch.setenv("MINI_AGENT_API_KEY", "environment-test-key")
+    path.write_text(json.dumps({"api_key": "file-test-key-1"}), encoding="utf-8-sig")
+    assert load_api_key(config) == "file-test-key-1"
+    path.write_text(json.dumps({"api_key": "file-test-key-2"}), encoding="utf-8")
+    assert load_api_key(config) == "file-test-key-2"
+    path.write_text('{"api_key":""}', encoding="utf-8")
+    assert load_api_key(config) == "environment-test-key"
+    path.unlink()
+    assert load_api_key(config) == "environment-test-key"
+    with pytest.raises(ModelError):
+        load_api_key(APIConfig("https://example.com/responses", "test", api_key_env=""))
+
+
+@pytest.mark.parametrize("content", [
+    '{"api_key":"credential-error-sentinel",',
+    '{"api_key":"credential-error-sentinel","api_key":"second"}',
+    '{"api_key":"credential-error-sentinel","extra":true}',
+    '{"api_key":42}', '[]', '{"api_key":"bad key"}',
+    json.dumps({"api_key": "x" * 4097}), 'x' * 16385,
+])
+def test_invalid_local_credential_does_not_leak_or_connect(tmp_path, monkeypatch, content):
+    from mini_agent.adapters.http_api import load_api_key
+    path = tmp_path / "agent.credentials.json"
+    path.write_text(content, encoding="utf-8")
+    monkeypatch.setenv("MINI_AGENT_API_KEY", KEY)
+    monkeypatch.setattr(HTTPTransport, "post", lambda *a: pytest.fail("Invalid credentials must not connect"))
+    with pytest.raises(ModelError) as error:
+        load_api_key(APIConfig("https://example.com/responses", "test"))
+    assert "credential-error-sentinel" not in str(error.value)
+    assert KEY not in str(error.value)
+    assert error.value.code in {"MODEL_CREDENTIAL_INVALID", "MODEL_CREDENTIAL_MISSING"}
+
+
+def test_local_credential_cli_authorization_and_redaction(project, tmp_path, monkeypatch, capsys):
+    (tmp_path / "agent.credentials.json").write_text(json.dumps({"api_key": KEY}), encoding="utf-8")
+    monkeypatch.setenv("MINI_AGENT_API_KEY", "environment-key-not-selected")
+    with server(lambda h, n: reply(h, body=envelope(call("read_file", path="src/calculator.py") if n == 1 else FINAL))) as (endpoint, requests):
+        monkeypatch.setattr("builtins.input", lambda prompt: "y")
+        assert main(api_cli_args(project, tmp_path, endpoint)) == 0
+        assert len(requests) == 2
+        assert all(r[1]["Authorization"] == "Bearer " + KEY for r in requests)
+    assert KEY not in capsys.readouterr().out
+    for path in (tmp_path / "runs").rglob("*"):
+        if path.is_file():
+            assert KEY.encode() not in path.read_bytes()
+
+
+def test_mock_does_not_load_local_credentials(project, tmp_path, monkeypatch):
+    (tmp_path / "agent.credentials.json").write_text('invalid JSON', encoding="utf-8")
+    monkeypatch.setattr("mini_agent.cli.load_api_key", lambda *a: pytest.fail("Mock must not load credentials"))
+    assert main(["run", "--project", str(project), "--task", "empty average", "--read-only", "--runs-dir", str(tmp_path / "runs")]) == 0
+
+
+def test_environment_variable_name_is_not_a_credential(tmp_path, monkeypatch):
+    from mini_agent.adapters.http_api import load_api_key
+    config = APIConfig("https://example.com/responses", "test")
+    (tmp_path / "agent.credentials.json").write_text(json.dumps({"api_key": config.api_key_env}), encoding="utf-8")
+    monkeypatch.setattr(HTTPTransport, "post", lambda *a: pytest.fail("Variable name must not be sent as a credential"))
+    with pytest.raises(ModelError, match="actual secret"):
+        load_api_key(config)
+    with pytest.raises(ModelError):
+        HTTPAdapter(config, key=config.api_key_env)
