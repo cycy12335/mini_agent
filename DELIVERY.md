@@ -30,11 +30,11 @@
 
 全新环境 `.mini-agent/stage6-verification/clean-env/` 未开启 system-site-packages；通过 `pip install ".[dev]"` 构建并安装 wheel。模块帮助与 `scripts/check_installed_cli.py` 通过，后者执行实际已安装 CLI 的只读提案、批准修改、基线/修复后测试、恢复及缺少依赖停止，无模型 API 调用。
 
-干净环境全量结果：**240 passed、1 skipped**；唯一跳过为 Windows 不适用的 POSIX FIFO。JUnit：`.mini-agent/stage6-verification/unit-tests.xml`。安装 CLI 会话：`.mini-agent/installed-cli/8bb26251ae84/`。
+干净环境全量结果：**241 passed、1 skipped**；唯一跳过为 Windows 不适用的 POSIX FIFO。JUnit：`.mini-agent/stage6-verification/unit-tests.xml`。安装 CLI 初次通过会话：`.mini-agent/installed-cli/8bb26251ae84/`，后续重验证会话同样保存在 installed-cli 下。
 
 CI 在 Windows/Linux × Python 3.11、3.12、3.13、3.14 上执行非 editable wheel 安装、全部测试、故意失败的原始空列表基线及已安装 CLI 恢复检查。真实 API 不在 CI 中调用。
 
-本阶段修正了安装相关问题：凭据文件以启动目录解析，wheel 安装不依赖源码目录；pytest 只注入独立的标准库 reporter，不将 Agent 的 site-packages 加入目标解释器，缺少 pytest 时不能借用 Agent 的 pytest。
+本阶段修正了安装相关问题：凭据文件以启动目录解析，wheel 安装不依赖源码目录；pytest 只注入独立的标准库 reporter，不将 Agent 的 site-packages 加入目标解释器，缺少 pytest 时不能借用 Agent 的 pytest；自保护同时识别运行中的包和含 Agent 源码特征的 checkout，允许 checkout 下独立的示例子项目。
 
 ## V1 验收清单与证据位置
 

@@ -45,7 +45,13 @@ class PolicyGuard:
                or p.lower() in BLOCKED_DIRECTORIES for p in self.root.parts):
             raise ToolError("PROTECTED_PROJECT", "Project is inside an excluded directory")
         agent_code = Path(__file__).resolve().parent
-        if self.root.is_relative_to(agent_code) or agent_code.is_relative_to(self.root):
+        # Wheel code may be outside the checkout. Protect recognizable Agent source too,
+        # while allowing examples/subprojects beneath a checkout as independent targets.
+        candidates = [self.root / "src" / "mini_agent", self.root / "mini_agent"]
+        candidates.extend(p for p in (self.root, *self.root.parents) if p.name.lower() == "mini_agent")
+        source_checkout = any(all((p / name).is_file() for name in ("__init__.py", "cli.py", "policy.py"))
+                              for p in candidates)
+        if self.root.is_relative_to(agent_code) or agent_code.is_relative_to(self.root) or source_checkout:
             raise ToolError("PROTECTED_PROJECT", "Choose a target separate from Agent source")
 
     def resolve(self, relative: str, *, directory: bool = False) -> Path:

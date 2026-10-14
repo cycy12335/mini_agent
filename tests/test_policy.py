@@ -48,6 +48,22 @@ def test_agent_project_is_protected():
         PolicyGuard(Path(__file__).resolve().parents[1])
 
 
+def test_source_checkout_is_protected_independently_of_installed_package(tmp_path):
+    checkout = tmp_path / "checkout"
+    package = checkout / "src/mini_agent"
+    package.mkdir(parents=True)
+    for name in ("__init__.py", "cli.py", "policy.py"):
+        (package / name).write_text("# fixture\n", encoding="utf-8")
+    child = package / "tools"
+    child.mkdir()
+    for target in (checkout, checkout / "src", package, child):
+        with pytest.raises(ToolError, match="separate"):
+            PolicyGuard(target)
+    example = checkout / "examples/target"
+    example.mkdir(parents=True)
+    assert PolicyGuard(example).root == example.resolve()
+
+
 def test_symlink_file_and_root_rejected(project, tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
