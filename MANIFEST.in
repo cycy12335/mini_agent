@@ -1,0 +1,15 @@
+include README.md
+include agent.api.example.json agent.config.example.json agent.credentials.json
+include examples/buggy_project/pytest.ini examples/string_input_project/pytest.ini examples/missing_dependency_project/pytest.ini
+recursive-include examples/buggy_project/src *.py
+recursive-include examples/buggy_project/tests *.py
+recursive-include examples/string_input_project/src *.py
+recursive-include examples/string_input_project/tests *.py
+recursive-include examples/missing_dependency_project/src *.py
+recursive-include examples/missing_dependency_project/tests *.py
+recursive-include scripts *.py
+exclude PLAN.md DELIVERY.md .env.example agent.credentials.local.json
+global-exclude ACCEPTANCE_STAGE_*.md *.pyc
+prune .mini-agent
+prune .pytest-tmp
+prune examples/demo*

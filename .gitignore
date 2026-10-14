@@ -1,14 +1,18 @@
 .venv/
 .env*
-!.env.example
 agent.config.json
 .mini-agent/
 __pycache__/
 .pytest_cache/
 .pytest-tmp/
-examples/demo-stage*/
+examples/demo*/
 *.egg-info/
 build/
 dist/
 
-agent.credentials.json
+agent.credentials.local.json
+
+# Local project notes
+PLAN.md
+DELIVERY.md
+ACCEPTANCE_STAGE_*.md

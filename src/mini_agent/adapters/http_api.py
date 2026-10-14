@@ -94,6 +94,7 @@ class HTTPTransport:
 
 
 CREDENTIALS_FILE = Path("agent.credentials.json")
+LOCAL_CREDENTIALS_FILE = Path("agent.credentials.local.json")
 
 
 def _credential_object(pairs):
@@ -108,7 +109,8 @@ def _credential_object(pairs):
 def load_api_key(config):
     # Read on every run; never include credential values in errors or configuration.
     key = ""
-    credentials = CREDENTIALS_FILE.absolute()
+    local = LOCAL_CREDENTIALS_FILE.absolute()
+    credentials = local if local.exists() or local.is_symlink() else CREDENTIALS_FILE.absolute()
     if credentials.exists() or credentials.is_symlink():
         try:
             _check_links(credentials)
@@ -123,11 +125,11 @@ def load_api_key(config):
                 raise ValueError("Invalid credential fields")
             key = data["api_key"]
         except (OSError, ValueError, RuntimeError, RecursionError):
-            raise ModelError("MODEL_CREDENTIAL_INVALID", "Cannot read agent.credentials.json; expected UTF-8 JSON with only a string api_key field") from None
+            raise ModelError("MODEL_CREDENTIAL_INVALID", "Cannot read credentials file; expected UTF-8 JSON with only a string api_key field") from None
     if not key:
         key = os.environ.get(config.api_key_env, "") if config.api_key_env else ""
     if not key or key == config.api_key_env or len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key):
-        raise ModelError("MODEL_CREDENTIAL_MISSING", "Set the actual secret value in agent.credentials.json or the configured environment variable; the variable name is not a credential")
+        raise ModelError("MODEL_CREDENTIAL_MISSING", "Set the actual secret value in agent.credentials.local.json, agent.credentials.json or the configured environment variable; the variable name is not a credential")
     return key
 
 

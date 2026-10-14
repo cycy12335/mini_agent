@@ -26,6 +26,7 @@ from mini_agent.tools.tests import TestRunner
 def isolated_local_credentials(tmp_path, monkeypatch):
     # The developer's actual credential file must never affect tests.
     monkeypatch.setattr("mini_agent.adapters.http_api.CREDENTIALS_FILE", tmp_path / "agent.credentials.json")
+    monkeypatch.setattr("mini_agent.adapters.http_api.LOCAL_CREDENTIALS_FILE", tmp_path / "agent.credentials.local.json")
 
 
 KEY = "test-credential-never-log-this"
@@ -440,3 +441,18 @@ def test_credential_location_is_launch_directory_for_installed_package(tmp_path,
     assert load_api_key(config) == "first-local-test-key"
     monkeypatch.chdir(second)
     assert load_api_key(config) == "second-local-test-key"
+
+
+
+def test_private_local_credentials_override_repository_template(tmp_path, monkeypatch):
+    from mini_agent.adapters.http_api import load_api_key
+    config = APIConfig("https://example.com/responses", "test", api_key_env="")
+    template = tmp_path / "agent.credentials.json"
+    local = tmp_path / "agent.credentials.local.json"
+    template.write_text('{"api_key":"template-test-key"}', encoding="utf-8")
+    local.write_text('{"api_key":"private-local-test-key"}', encoding="utf-8")
+    assert load_api_key(config) == "private-local-test-key"
+    local.write_text('{"api_key":"updated-local-test-key"}', encoding="utf-8")
+    assert load_api_key(config) == "updated-local-test-key"
+    local.unlink()
+    assert load_api_key(config) == "template-test-key"
