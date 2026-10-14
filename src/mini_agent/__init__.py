@@ -1,3 +1,3 @@
-"""Mini Coding Agent: stage 3 approved edits and conflict-safe recovery."""
+"""Mini Coding Agent: approved Python repairs, bounded API calls and test evidence."""
 
 __version__ = "0.1.0"

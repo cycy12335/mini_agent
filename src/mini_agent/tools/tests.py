@@ -10,7 +10,8 @@ import time
 
 from ..config import AgentConfig
 from ..models import ToolError
-from ..policy import PolicyGuard
+from ..policy import PolicyGuard, _check_links
+from ..patching import atomic_write
 from .processes import PosixGroup, WindowsJob
 
 
@@ -34,8 +35,8 @@ def build_test_environment(report: Path) -> dict[str, str]:
     env.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1",
                 "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1",
                 "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "PYTEST_ADDOPTS": "-p no:cacheprovider",
-                "PYTEST_PLUGINS": "mini_agent.pytest_reporter",
-                "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+                "PYTEST_PLUGINS": "mini_agent_pytest_reporter",
+                "PYTHONPATH": str(report.parent),
                 "MINI_AGENT_TEST_REPORT": str(report)})
     return env
 
@@ -91,6 +92,14 @@ class TestRunner:
         if budget <= 0:
             result.timed_out = True
             return result
+        # Inject only the stdlib-only reporter, never Agent's site-packages/dependencies.
+        _check_links(report.parent)
+        plugin = report.parent / "mini_agent_pytest_reporter.py"
+        if plugin.exists() or plugin.is_symlink():
+            _check_links(plugin)
+            if plugin.stat().st_nlink > 1:
+                raise ToolError("TEST_PLUGIN_LINK", "Linked test reporters are forbidden")
+        atomic_write(plugin, (Path(__file__).resolve().parents[1] / "pytest_reporter.py").read_bytes())
         process = tree = reader = None
         captured = bytearray()
         total = 0

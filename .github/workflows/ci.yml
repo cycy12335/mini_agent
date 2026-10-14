@@ -34,7 +34,7 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
       - name: Install package and development dependencies
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install ".[dev]"
       - name: Check installed CLI
         run: |
           python -m mini_agent --help
@@ -43,3 +43,5 @@ jobs:
         run: python -m pytest tests -q
       - name: Verify intentionally failing example baseline
         run: python scripts/check_example_baseline.py
+      - name: Verify wheel-installed CLI and recovery
+        run: python scripts/check_installed_cli.py

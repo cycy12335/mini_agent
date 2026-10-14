@@ -54,7 +54,7 @@ class AuditLog:
             os.fsync(stream.fileno())
 
     def _path(self, name: str) -> Path:
-        if name not in {"events.jsonl", "proposals.json", "summary.json", "report.md", "proposal.diff", "manifest.json", "rollback.json", "test-output.txt"} and not re.fullmatch(r"(?:proposal-\d{3,}\.diff|test-\d{3,}(?:-results\.json|-output\.txt|\.json))", name):
+        if name not in {"events.jsonl", "proposals.json", "summary.json", "report.md", "proposal.diff", "manifest.json", "rollback.json", "test-output.txt", "mini_agent_pytest_reporter.py"} and not re.fullmatch(r"(?:proposal-\d{3,}\.diff|test-\d{3,}(?:-results\.json|-output\.txt|\.json))", name):
             raise ValueError("Unsupported artifact name")
         path = self.directory / name
         _check_links(self.directory)

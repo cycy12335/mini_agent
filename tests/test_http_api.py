@@ -426,3 +426,17 @@ def test_environment_variable_name_is_not_a_credential(tmp_path, monkeypatch):
         load_api_key(config)
     with pytest.raises(ModelError):
         HTTPAdapter(config, key=config.api_key_env)
+
+
+def test_credential_location_is_launch_directory_for_installed_package(tmp_path, monkeypatch):
+    from mini_agent.adapters.http_api import load_api_key
+    monkeypatch.setattr("mini_agent.adapters.http_api.CREDENTIALS_FILE", Path("agent.credentials.json"))
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir(); second.mkdir()
+    (first / "agent.credentials.json").write_text(json.dumps({"api_key": "first-local-test-key"}), encoding="utf-8")
+    (second / "agent.credentials.json").write_text(json.dumps({"api_key": "second-local-test-key"}), encoding="utf-8")
+    config = APIConfig("https://example.com/responses", "test", api_key_env="")
+    monkeypatch.chdir(first)
+    assert load_api_key(config) == "first-local-test-key"
+    monkeypatch.chdir(second)
+    assert load_api_key(config) == "second-local-test-key"

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mini-coding-agent"
 version = "0.1.0"
-description = "A minimal permission-controlled coding agent with read-only project tools."
+description = "A permission-controlled Python coding agent with approved repairs and bounded test verification."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []

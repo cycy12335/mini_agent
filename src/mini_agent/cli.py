@@ -21,7 +21,7 @@ from .privacy import Redactor, ScopedFiles, disclosure_files
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mini-agent",
-        description="Mini Coding Agent — 阶段 5：真实模型、发送审批与修复反馈。",
+        description="Mini Coding Agent V1：真实模型、发送审批与修复验证。",
     )
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)

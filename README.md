@@ -1,6 +1,6 @@
 # Mini Coding Agent
 
-遵循 [PLAN.md](PLAN.md) 的 Python 命令行编程 Agent。当前完成阶段 0–4：只读工具、离线 Mock 循环、差异预览、审批、备份、应用、恢复与授权测试反馈。
+遵循 [PLAN.md](PLAN.md) 的 Python 命令行编程 Agent。V1 包含只读工具、Mock/真实模型循环、发送范围确认、差异审批、备份恢复、授权测试和每次运行 ¥0.5 的客户端预估费用预算。阶段 6 的案例与交付证据见 [DELIVERY.md](DELIVERY.md)。
 
 `files` 可用于浏览目标项目，`run --model mock` 可跑通预设示例并在确认后应用补丁。显式授权测试后，先保存基线，再自动测试每次已批准的修改。`inspect` 查看记录，`rollback` 预览并确认恢复。Mock 是固定演示，不是通用模型；任务描述会记录在会话中，但不会改变预设修复策略。阶段 5 已加入 `--model api`、发送范围审批与 HTTP 适配器；真实模型验收状态见文末。
 
@@ -18,6 +18,8 @@ py -3 -m venv .venv
 ```
 
 VS Code 中通过 `Python: Select Interpreter` 选择 `.venv\Scripts\python.exe`。无需激活环境或修改 PowerShell 执行策略。
+
+上面是可编辑的开发安装。正式安装验证使用 `python -m pip install ".[dev]"`（不带 `-e`），会构建并安装 wheel；在新的虚拟环境中安装后运行 `python scripts/check_installed_cli.py` 可验证已安装 CLI 的只读、审批修复、测试、恢复和缺少依赖停止。该脚本使用离线 Mock，不调用模型 API。CI 对 Windows/Linux 与 Python 3.11–3.14 均执行 wheel 安装和此验证。
 
 ## 阶段 0 验收
 
@@ -169,7 +171,7 @@ DeepSeek Flash 默认按 2026-10-14 核对的高峰期、缓存未命中单价�
 }
 ```
 
-程序每次启动会重新读取这个文件，不需要设置 PowerShell 环境变量，也不需要重启终端。文件已加入 `.gitignore`，不会作为项目文件发送给模型；密钥仍参与日志及输出脱敏。密钥以明文保存在本机，请勿提交或分享该文件。服务地址、模型与请求预算仍放在 `agent.api.example.json`。
+程序每次启动会重新读取**启动命令当前目录**中的这个文件；从项目根启动即可，源码安装和 wheel 安装使用相同规则。不需要设置 PowerShell 环境变量或重启终端。文件已加入 `.gitignore`，不会作为项目文件发送给模型；密钥仍参与日志及输出脱敏。密钥以明文保存在本机，请勿提交或分享该文件。服务地址、模型与请求预算仍放在 `agent.api.example.json`。
 
 读取优先级：文件中的非空 `api_key` 优先；文件不存在或密钥为空时，回退读取 `api.api_key_env` 指定的环境变量（默认 `MINI_AGENT_API_KEY`）。`api_key_env` 设为空字符串可禁用环境变量回退。密钥文件只允许一个字符串字段 `api_key`，格式错误会直接报错而不会联网。`api_key` 必须填写平台生成的实际密钥，不能填变量名 `MINI_AGENT_API_KEY`；这种误填也会在联网前拒绝。`.env` 和 `.env.example` 仍不会自动加载。
 
@@ -219,4 +221,6 @@ py -3 -m venv .\examples\demo-stage5\.venv
 
 阶段 4 验收包括真实 CLI 的基线失败 → 审批应用 → 测试通过、哈希一致恢复、未授权不启动进程、敏感环境清理、输出洪泛截断、缺失依赖、非零退出、进程树清理及测试失败后再次审批修复。现有阶段的单元测试和集成测试均由跨平台 CI 自动执行。
 
-阶段 5 代码已实现，离线 HTTP 集成覆盖协议转换、授权拒绝、范围锁定、脱敏、认证失败、限流重试、慢响应超时/取消、格式异常及端到端修复。脚本服务与 Mock 通过不能替代真实模型验收；真实 DeepSeek 修复案例尚待执行并记录，完成后再进入阶段 6。
+2026-10-14 真实 DeepSeek V4.1 Flash 案例已实际返回 `verified`：自主读取源码和测试、提出并经审批应用补丁，基线 1 failed/1 passed → 修复后 2 passed；随后 CLI 恢复的源码哈希与原始内容一致。5 次请求累计输入 7386、输出 492 token，按配置高峰单价估计 ¥0.018708，实际账单未核对；日志未包含所使用的密钥。
+
+阶段 6 的交付清单、三类案例结果、安装证据和已知限制见 [DELIVERY.md](DELIVERY.md)。后续新增功能遵循 PLAN.md 的 V2 路线；当前 `verified` 仅覆盖实际运行的测试。

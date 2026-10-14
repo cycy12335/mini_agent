@@ -76,6 +76,9 @@ class AgentController:
         if result.timed_out:
             raise ToolError("TEST_TIMEOUT", "Test execution timed out")
         if not result.cleanup_ok or result.error or not result.complete or result.exit_code not in {0, 1} or result.collection_errors:
+            if result.cleanup_ok and not result.error and ("ModuleNotFoundError" in result.output or "No module named pytest" in result.output):
+                raise ToolError("TEST_DEPENDENCY_UNAVAILABLE",
+                                "A required module is unavailable. Check dependencies and import paths in the selected virtual environment, then rerun. Dependencies are not installed automatically; inspect saved test output for the module name.")
             raise ToolError("TEST_EXECUTION_ERROR", "Test execution or collection incomplete; inspect saved test output")
         # Detailed per-case records stay in artifacts; bounded console output is feedback.
         return ToolResult(True, {"passed": result.passed, "exit_code": result.exit_code,

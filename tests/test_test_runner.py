@@ -107,6 +107,9 @@ def test_invalid_interpreter_and_missing_pytest(project, tmp_path):
     result = runner(project, python).run(tmp_path / "report.json")
     assert result.exit_code != 0 and not result.complete and not result.passed
     assert "pytest" in result.output
+    assert (tmp_path / "mini_agent_pytest_reporter.py").is_file()
+    from mini_agent.tools.tests import build_test_environment
+    assert build_test_environment(tmp_path / "report.json")["PYTHONPATH"] == str(tmp_path)
 
 
 def test_comparison_does_not_count_removed_or_skipped_failures_as_fixed():

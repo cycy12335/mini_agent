@@ -93,7 +93,7 @@ class HTTPTransport:
                 watchdog.join(timeout=1)
 
 
-CREDENTIALS_FILE = Path(__file__).resolve().parents[3] / "agent.credentials.json"
+CREDENTIALS_FILE = Path("agent.credentials.json")
 
 
 def _credential_object(pairs):
@@ -108,12 +108,13 @@ def _credential_object(pairs):
 def load_api_key(config):
     # Read on every run; never include credential values in errors or configuration.
     key = ""
-    if CREDENTIALS_FILE.exists() or CREDENTIALS_FILE.is_symlink():
+    credentials = CREDENTIALS_FILE.absolute()
+    if credentials.exists() or credentials.is_symlink():
         try:
-            _check_links(CREDENTIALS_FILE)
-            if CREDENTIALS_FILE.stat().st_nlink > 1:
+            _check_links(credentials)
+            if credentials.stat().st_nlink > 1:
                 raise ValueError("Linked credential file")
-            with CREDENTIALS_FILE.open("rb") as stream:
+            with credentials.open("rb") as stream:
                 raw = stream.read(16385)
             if len(raw) > 16384:
                 raise ValueError("Credential file too large")
