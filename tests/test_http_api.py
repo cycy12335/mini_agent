@@ -76,6 +76,8 @@ def reply(handler, status=200, body=None):
 
 
 def adapter(endpoint, **config):
+    config.setdefault("input_price_cny_per_million", 2)
+    config.setdefault("output_price_cny_per_million", 8)
     return HTTPAdapter(APIConfig(endpoint, "test-model", **config), key=KEY, authorized=True, timeout=2)
 
 
@@ -223,7 +225,9 @@ def test_audit_redaction_preserves_valid_json(project, tmp_path):
 
 def api_cli_args(project, tmp_path, endpoint):
     path = tmp_path / "api.json"
-    path.write_text(json.dumps({"api": {"endpoint": endpoint, "model": "test-model"}}), encoding="utf-8")
+    path.write_text(json.dumps({"api": {"endpoint": endpoint, "model": "test-model",
+                                          "input_price_cny_per_million": 2,
+                                          "output_price_cny_per_million": 8}}), encoding="utf-8")
     return ["run", "--project", str(project), "--task", "average([]) should return zero", "--model", "api",
             "--config", str(path), "--runs-dir", str(tmp_path / "runs")]
 
@@ -256,6 +260,11 @@ def test_real_http_cli_repair_is_offline_protocol_integration(project, tmp_path,
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["status"] == "verified" and len(requests) == 6
     assert summary["token_usage"]["input_tokens"] == 72
+    assert summary["api_cost"]["limit_cny"] == "0.5"
+    assert summary["api_cost"]["uncertain_requests"] == 0
+    cost_events = [json.loads(line) for line in (summary_path.parent / "events.jsonl").read_text(encoding="utf-8").splitlines()
+                   if json.loads(line)["event"] == "model_cost"]
+    assert len(cost_events) == 12 and cost_events[0]["phase"] == "reserved"
     for path in summary_path.parent.rglob("*"):
         if path.is_file():
             assert KEY.encode() not in path.read_bytes()
@@ -289,7 +298,8 @@ def test_network_retries_are_capped():
             self.calls += 1
             raise ModelError("MODEL_NETWORK_ERROR", "Connection failed")
     transport = BrokenTransport()
-    model = HTTPAdapter(APIConfig("https://example.com/responses", "test"), key=KEY,
+    model = HTTPAdapter(APIConfig("https://example.com/responses", "test", input_price_cny_per_million=2,
+                                  output_price_cny_per_million=8), key=KEY,
                         transport=transport, authorized=True)
     with pytest.raises(ModelError):
         model.next_action([], TOOL_SCHEMAS)
@@ -347,7 +357,7 @@ def test_deepseek_example_matches_official_responses_contract():
     payload = model._payload([], TOOL_SCHEMAS)
     assert payload["reasoning"] == {"effort": "low"}
     assert payload["text"]["format"] == {"type": "json_object"}
-    assert "max_tokens" not in payload and payload["max_output_tokens"] == 8192
+    assert "max_tokens" not in payload and payload["max_output_tokens"] == 2048
 
 
 def test_local_credential_reread_priority_and_environment_fallback(tmp_path, monkeypatch):

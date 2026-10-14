@@ -153,7 +153,13 @@ Windows 在挂起状态创建解释器，先加入禁用 breakaway、关闭即�
 
 本项目选用 **DeepSeek V4.1 Flash**，官方 API 模型 ID 为 `deepseek-flash`；使用 `https://api.deepseek.com/responses` 的 Responses 协议。[模型官方说明](https://api-docs.deepseek.com/news/news260910/)、[DeepSeek Responses 接口](https://api-docs.deepseek.com/api/create-response/)。
 
-`agent.api.example.json` 已配置该服务、`reasoning_effort: low`、8192 输出 token、1 MiB 响应上限和最多 2 次临时错误重试。模型和地址均可配置。预算包括推理 token，但不保存或发送模型返回的隐藏推理。API 会产生服务费用；token 用量只依据响应提供的数据累计，缺失部分明确标记未知，不做精确费用承诺。
+`agent.api.example.json` 已配置该服务、`reasoning_effort: low`、2048 输出 token、1 MiB 响应上限和自动重试 0 次。每次完整运行的所有模型调用合计采用 **¥0.5 的客户端预估预算**，配置只能调低这一上限。模型和地址均可配置。输出预算包括推理 token，不保存或发送模型返回的隐藏推理。
+
+每次 HTTP 发送前，使用完整请求 UTF-8 字节数加 1024 个 framing 余量作为保守输入 token 估计，按最大输出 token 预留费用；下一请求可能超过剩余额度时返回 `model_cost_limit`，不联网。收到有效用量后按用量结算估计额；超时、断连、响应格式异常或缺少用量时保留全部预留额。每次重试重新预留，不能绕过整个运行的合计预算。`events.jsonl` 在发送前持久化预留记录，`summary.json/report.md` 保存预算、估计占用、剩余额度和未知请求数。`pytest`、Mock 和 CI 本地假服务不产生 DeepSeek 调用费用。
+
+DeepSeek Flash 默认按 2026-10-14 核对的高峰期、缓存未命中单价估计：输入 ¥2/百万 token、输出 ¥8/百万 token，缓存命中及空闲优惠不用于扩大预算。[官方人民币价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)。其他模型/服务必须显式配置已核对的 `input_price_cny_per_million` 和 `output_price_cny_per_million`，否则发送前拒绝。价格变更后需更新配置。若服务返回的用量超过预留估计，记录该用量并停止后续动作。
+
+这是根据配置价格与 token 估计实施的客户端拦截，不能替代服务端账单额度，也不能保证价格变更、服务忽略 token 限制或其他客户端共用密钥时账户扣费仍在 ¥0.5 内。平台账单才是实际扣费依据；报错或未完成修复也不能据此断定请求免费。本项目预算仅控制 `mini-agent run` 发出的请求，用户另启一次运行会获得新的一次预算。
 
 直接编辑项目根目录的 **`agent.credentials.json`**，把 `api_key` 的空字符串换成自己的密钥，保存后照常运行 API 模式：
 

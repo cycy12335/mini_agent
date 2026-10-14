@@ -46,6 +46,8 @@ class AgentController:
         self.revision = 0
         self.test_revision = -1
         self.before_run, self.project_files = before_run, project_files
+        if hasattr(adapter, "cost_observer"):
+            adapter.cost_observer = lambda **data: audit.record("model_cost", **data)
 
     def _tests(self, phase):
         if self.test_runner is None or not self.test_runner.authorized:
@@ -209,6 +211,7 @@ class AgentController:
                    "test_timed_out": self.latest_test.timed_out if self.latest_test else False,
                    "test_history": self.test_history, "comparison": self._comparison(),
                    "model_service": self.adapter.service_summary() if hasattr(self.adapter, "service_summary") else None,
+                   "api_cost": self.adapter.cost_summary() if hasattr(self.adapter, "cost_summary") else None,
                    "token_usage": self.adapter.usage_summary() if hasattr(self.adapter, "usage_summary") else "unknown"}
         self.audit.record("finished", **summary)
         self.audit.write_json("summary.json", summary)
@@ -216,6 +219,7 @@ class AgentController:
             f"# Run {self.audit.run_id}\n\nStatus: {status}\n\nReason: {reason}\n\n"
             f"Model conclusion (unverified): {message}\n\nActions: {actions}\n\n"
             f"Model service: {summary['model_service']}\n\nToken usage: {summary['token_usage']}\n\n"
+            f"API cost budget (client estimate, not provider bill): {summary['api_cost']}\n\n"
             f"Read files: {', '.join(summary['read_files']) or '(none)'}\n\n"
             f"Proposals: {summary['proposals']} (see proposals.json and proposal-*.diff)\n\n"
             f"Modified or recovery-pending files: {', '.join(summary['modified_files']) or 'none'}\n\n"

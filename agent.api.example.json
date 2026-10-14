@@ -5,9 +5,12 @@
     "model": "deepseek-flash",
     "reasoning_effort": "low",
     "api_key_env": "MINI_AGENT_API_KEY",
-    "max_output_tokens": 8192,
+    "max_run_cost_cny": 0.5,
+    "input_price_cny_per_million": 2,
+    "output_price_cny_per_million": 8,
+    "max_output_tokens": 2048,
     "max_response_bytes": 1048576,
-    "max_retries": 2
+    "max_retries": 0
   },
   "max_actions": 20,
   "model_timeout_seconds": 60,

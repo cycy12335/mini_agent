@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import re
+import math
 from urllib.parse import urlsplit
 
 
@@ -15,6 +16,9 @@ class APIConfig:
     max_response_bytes: int = 1024 * 1024
     max_retries: int = 2
     reasoning_effort: str | None = None
+    max_run_cost_cny: float = 0.5
+    input_price_cny_per_million: float | None = None
+    output_price_cny_per_million: float | None = None
 
     def __post_init__(self):
         if self.protocol not in {"responses", "chat_completions"}:
@@ -41,6 +45,16 @@ class APIConfig:
             raise ValueError("max_retries must be 0, 1 or 2")
         if self.reasoning_effort is not None and self.reasoning_effort not in {"none", "low", "medium", "high", "max"}:
             raise ValueError("Unsupported reasoning_effort")
+        for name in ("max_run_cost_cny", "input_price_cny_per_million", "output_price_cny_per_million"):
+            value = getattr(self, name)
+            if name != "max_run_cost_cny" and value is None:
+                continue
+            if type(value) not in {int, float} or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be a finite positive number")
+        if self.max_run_cost_cny > 0.5:
+            raise ValueError("max_run_cost_cny cannot exceed the authorized CNY 0.5 ceiling")
+        if (self.input_price_cny_per_million is None) != (self.output_price_cny_per_million is None):
+            raise ValueError("Configure both input and output unit prices together")
 
 
 def parse_api_config(data):

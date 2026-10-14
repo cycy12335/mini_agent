@@ -103,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"运行目录：{audit.directory}", flush=True)
     def approve_disclosure():
         print(f"模型服务：{config.api.endpoint}\n协议：{config.api.protocol}\n模型：{config.api.model}")
+        print(f"本次全部模型请求及重试的合计预算：¥{config.api.max_run_cost_cny:.2f}；发送前按输入估计及最大输出预留。")
         print("允许模型按需读取的文件（不会自动上传全部内容）：\n" + "\n".join(manifest))
         print("将发送任务、上述范围内按需读取的内容、工具结果及已授权测试的输出；测试输出可能包含项目运行产生的其他内容。")
         print("后续新增文件需重新启动并确认范围。API 请求可能产生服务费用；日志不保存凭据或模型隐藏推理。")

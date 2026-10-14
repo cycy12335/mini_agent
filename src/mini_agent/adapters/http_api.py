@@ -17,6 +17,7 @@ from ..models import ToolError
 from ..policy import _check_links
 from ..privacy import Redactor
 from ..prompts import INSTRUCTIONS
+from ..costs import CostBudget
 
 
 class ModelError(ToolError):
@@ -145,6 +146,9 @@ class HTTPAdapter:
         self.requests = 0
         self.usage_records = []
         self.reported_models = set()
+        self.cost_budget = CostBudget(config)
+        self._pending_reservation = None
+        self.cost_observer = lambda **data: None
 
     def set_run_budget(self, remaining, cancelled):
         self.run_deadline = time.monotonic() + remaining
@@ -176,7 +180,9 @@ class HTTPAdapter:
                 raise ModelError("CANCELLED", "Model request cancelled")
             if time.monotonic() >= deadline:
                 raise ModelError("MODEL_TIMEOUT", "Model request budget exhausted")
+            self._pending_reservation = self.cost_budget.reserve(payload, self.config.max_output_tokens)
             self.requests += 1
+            self.cost_observer(phase="reserved", request=self.requests, budget=self.cost_summary())
             try:
                 result = self.transport.post(self.config.endpoint, payload, self._key, deadline,
                                              self.config.max_response_bytes, self.cancelled)
@@ -215,6 +221,12 @@ class HTTPAdapter:
                 keys = ("input_tokens", "output_tokens") if self.config.protocol == "responses" else ("prompt_tokens", "completion_tokens")
                 if all(type(usage.get(k)) is int and usage[k] >= 0 for k in keys):
                     self.usage_records.append({"input_tokens": usage[keys[0]], "output_tokens": usage[keys[1]]})
+                    if self._pending_reservation is not None:
+                        record, self._pending_reservation = self._pending_reservation, None
+                        try:
+                            self.cost_budget.settle(record, usage[keys[0]], usage[keys[1]])
+                        finally:
+                            self.cost_observer(phase="usage_received", request=self.requests, budget=self.cost_summary())
             if self.config.protocol == "responses":
                 if data.get("status") != "completed" or data.get("error"):
                     raise ModelError("MODEL_INCOMPLETE", "Model response did not complete")
@@ -256,7 +268,7 @@ class HTTPAdapter:
                 raise ModelError("MODEL_SENSITIVE_OUTPUT", "Model action contains credential-like content; action rejected")
             return text
         except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError) as exc:
-            if isinstance(exc, ModelError):
+            if isinstance(exc, ToolError):
                 raise
             raise ModelError("MODEL_RESPONSE_FORMAT", "Invalid model response envelope") from exc
 
@@ -270,3 +282,6 @@ class HTTPAdapter:
     def service_summary(self):
         return {"endpoint": self.config.endpoint, "protocol": self.config.protocol,
                 "requested_model": self.config.model, "reported_models": sorted(self.reported_models)}
+
+    def cost_summary(self):
+        return self.cost_budget.summary()
