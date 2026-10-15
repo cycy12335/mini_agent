@@ -1,6 +1,6 @@
 # 面板 stdio 协议 v1
 
-本协议是可视化 UI-2 的最小适配层，不是核心 V2 自主定位功能。
+通过本地 stdin/stdout 与 Mini Agent 交互，每行一个 UTF-8 JSON 对象。
 
 ## 启动
 
@@ -9,7 +9,7 @@ python -u -m mini_agent.panel --project <absolute-path> --task <description> --m
 ```
 
 其余运行参数与 `mini-agent run` 相同。原有 CLI 不受影响。
-UI-3 增加恢复入口：
+恢复入口：
 
 ```text
 python -u -m mini_agent.panel rollback --runs-dir <external-path> --run-id <run-id>
@@ -59,4 +59,4 @@ approved 必须是布尔值；错误 ID、重复审批和历史审批拒绝执�
 审计文件支持历史重读；审批和原生 Diff 快照目前是宿主内存状态，重启后不恢复审批，历史查看统一补丁。
 rollback 审批 payload 包含 project/files/notice。预览失败时不请求审批；审批后重新验证备份、文件哈希和清单版本。恢复审计事件追加到原运行，原 summary/report 保持历史结果。
 恢复状态包括 rolled_back/cancelled/nothing_to_restore/failed。客户端读取 manifest 判断清单状态，不把历史 verified 当作恢复后的验证结果。
-此版未实现多运行服务或任意阶段续跑。
+面板连接管理单次任务，多任务集成可使用 [本地任务服务](CORE_SERVICE.md)；不支持自动续跑。
