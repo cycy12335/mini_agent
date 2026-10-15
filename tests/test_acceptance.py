@@ -12,9 +12,9 @@ from mini_agent.audit import AuditLog
 
 
 @pytest.fixture(scope="module")
-def prepared(tmp_path_factory):
+def prepared(tmp_path_factory, interpreter):
     root = tmp_path_factory.mktemp("acceptance") / "suite"
-    data = prepare(root, interpreter=sys.executable)
+    data = prepare(root, interpreter=interpreter)
     return root, data
 
 
@@ -56,9 +56,9 @@ def test_oracles_reject_defects_and_preserve_model_projects(prepared):
             assert unchanged(root, case)
 
 
-def test_candidate_gold_oracles_accept_correct_semantics(tmp_path):
+def test_candidate_gold_oracles_accept_correct_semantics(tmp_path, interpreter):
     root = tmp_path / "suite"
-    data = prepare(root, interpreter=sys.executable)
+    data = prepare(root, interpreter=interpreter)
     fixes = {"batch_total": ("sum(rows[:-1])", "sum(rows)"),
         "interval_overlap": ("min(start, left)", "max(start, left)"),
         "dynamic_prefix": ("text[:-len(prefix)]", "text[len(prefix):]")}

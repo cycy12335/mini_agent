@@ -254,14 +254,14 @@ def test_service_cancel_reaches_model(demo, monkeypatch):
         service.close()
 
 
-def test_service_cancel_reaches_real_pytest(demo):
+def test_service_cancel_reaches_real_pytest(demo, interpreter):
     project, runs = demo
     (project / "tests/test_wait.py").write_text(
         "from pathlib import Path\nimport time\ndef test_wait():\n    Path('test_ready.txt').write_text('ready')\n    time.sleep(30)\n", encoding="utf-8")
     sink, service = Sink(), None
     service = CoreService(sink)
     try:
-        task = service.start([*arguments(demo), "--allow-tests", "--test-python", sys.executable])["task_id"]
+        task = service.start([*arguments(demo), "--allow-tests", "--test-python", str(interpreter)])["task_id"]
         deadline = time.monotonic() + 10
         while not (project / "test_ready.txt").exists() and time.monotonic() < deadline:
             time.sleep(.02)

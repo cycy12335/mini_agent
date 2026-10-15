@@ -60,3 +60,11 @@ VSIX 为本机交付包，含现有解释器和配置文件的路径，不含密
 - 离线候选集：`.pytest-tmp/installed-acceptance-52f9845364ce/offline-results.json`
 
 Git 提交和远端状态以本轮最终交付消息及仓库历史为准。新补充的跨平台 CI 需要在推送后由 GitHub Actions 执行，本机结果不代表远端矩阵已运行通过。
+
+## 远端矩阵首轮发现及修复
+
+首轮推送 `075fe4c` 触发 [CI 38683499914](https://github.com/cycy12335/mini_agent/actions/runs/38683499914)。Windows/Linux 插件任务通过；Python 矩阵暴露新增验收和取消测试直接使用 `sys.executable`，而 runner 使用非虚拟环境 Python，不符合受控测试解释器要求。本机原本从 `.venv` 运行，因而未复现。
+
+修复沿用项目已有的 `interpreter` fixture，为验收及真实 pytest 取消测试提供明确虚拟环境；CI 安装和验收统一放入 `.venv`。保持生产解释器校验规则，未放宽执行权限。首轮失败记录保留，后续复验以最终提交对应的 GitHub Actions 为准。
+
+修复后本机定向执行 `tests/test_acceptance.py tests/test_service.py`，结果 **36 passed in 23.71s**；生产代码未改变。
