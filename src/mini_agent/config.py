@@ -26,6 +26,14 @@ class AgentConfig:
     max_scan_entries: int = 10000
     max_directory_depth: int = 32
     max_tool_output_chars: int = 32768
+    max_index_bytes: int = 4 * 1024 * 1024
+    max_index_nodes: int = 100_000
+    max_hypotheses: int = 8
+    max_evidence: int = 100
+    max_diagnosis_chars: int = 32768
+    max_repair_attempts: int = 3
+    max_test_targets: int = 100
+    max_validation_copy_bytes: int = 8 * 1024 * 1024
 
     def __post_init__(self) -> None:
         for field in fields(self):

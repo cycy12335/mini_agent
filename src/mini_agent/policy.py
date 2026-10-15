@@ -28,8 +28,8 @@ def _check_links(path: Path) -> None:
 
 
 class PolicyGuard:
-    def resolve_edit(self, relative: str) -> Path:
-        path = self.resolve(relative)
+    def resolve_edit(self, relative: str, *, allow_missing: bool = False) -> Path:
+        path = self.resolve(relative, allow_missing=allow_missing)
         if path.suffix.lower() not in {".py", ".pyi"} or path.name.lower() in {"setup.py", "conftest.py"}:
             raise ToolError("EDIT_FORBIDDEN", "Only Python source/tests may be edited; setup and test configuration are excluded")
         return path
@@ -54,7 +54,7 @@ class PolicyGuard:
         if self.root.is_relative_to(agent_code) or agent_code.is_relative_to(self.root) or source_checkout:
             raise ToolError("PROTECTED_PROJECT", "Choose a target separate from Agent source")
 
-    def resolve(self, relative: str, *, directory: bool = False) -> Path:
+    def resolve(self, relative: str, *, directory: bool = False, allow_missing: bool = False) -> Path:
         if not isinstance(relative, str) or not relative or len(relative) > 1024:
             raise ToolError("INVALID_PATH", "Path must be a nonempty relative string (max 1024 chars)")
         if relative == "." and directory:
@@ -73,6 +73,14 @@ class PolicyGuard:
                     or SENSITIVE_NAME.search(part)):
                 raise ToolError("FILTERED_PATH", "Hidden, generated or sensitive paths are excluded")
         path = self.root.joinpath(*parts)
+        if allow_missing and not directory:
+            _check_links(path.parent)
+            if not path.exists() and not path.is_symlink():
+                if not path.parent.is_dir():
+                    raise ToolError("NOT_DIRECTORY", "New files require an existing parent directory")
+                if path.suffix.lower() not in TEXT_SUFFIXES:
+                    raise ToolError("UNSUPPORTED_FILE", "File type is not in the text allowlist")
+                return path
         _check_links(path)
         resolved = path.resolve(strict=True)
         if not resolved.is_relative_to(self.root):

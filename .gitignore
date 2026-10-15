@@ -9,6 +9,8 @@ examples/demo*/
 *.egg-info/
 build/
 dist/
+.npm-cache/
+extensions/vscode/local-runtime.json
 
 agent.credentials.local.json
 
@@ -16,3 +18,7 @@ agent.credentials.local.json
 PLAN.md
 DELIVERY.md
 ACCEPTANCE_STAGE_*.md
+
+# Local troubleshooting artifacts
+/debug.log
+/git-acl-backup.txt

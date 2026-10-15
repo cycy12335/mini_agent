@@ -11,5 +11,13 @@
   "max_files": 1000,
   "max_scan_entries": 10000,
   "max_directory_depth": 32,
-  "max_tool_output_chars": 32768
+  "max_tool_output_chars": 32768,
+  "max_index_bytes": 4194304,
+  "max_index_nodes": 100000,
+  "max_hypotheses": 8,
+  "max_evidence": 100,
+  "max_diagnosis_chars": 32768,
+  "max_repair_attempts": 3,
+  "max_test_targets": 100,
+  "max_validation_copy_bytes": 8388608
 }

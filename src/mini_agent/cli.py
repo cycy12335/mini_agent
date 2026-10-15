@@ -16,12 +16,14 @@ from .patching import PatchManager
 from .tools.tests import TestRunner, validate_interpreter
 from .adapters.http_api import HTTPAdapter, load_api_key
 from .privacy import Redactor, ScopedFiles, disclosure_files
+from .models import ToolError
+from .repository import discover_repository
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mini-agent",
-        description="Mini Coding Agent V1：真实模型、发送审批与修复验证。",
+        description="Mini Coding Agent：仓库探测、发送审批与修复验证。",
     )
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -36,10 +38,28 @@ def build_parser() -> argparse.ArgumentParser:
     search = operations.add_parser("search", help="按字面量搜索文本")
     search.add_argument("query", help="区分大小写的搜索文本（非正则表达式）")
     search.add_argument("--path", default=".", help="相对目录")
+    project = commands.add_parser("project", help="只读探测 Python 仓库（输出 JSON，不调用模型）")
+    project.add_argument("--project", type=Path, required=True)
+    project.add_argument("--config", type=Path)
+    symbols = commands.add_parser("symbols", help="只读 Python AST 定义、引用、调用和相关测试查询")
+    symbols.add_argument("--project", type=Path, required=True)
+    symbols.add_argument("--config", type=Path)
+    symbols.add_argument("operation", choices=("definition", "references", "callers", "callees", "related-tests"))
+    symbols.add_argument("symbol", help="符号短名、完整名称或查询返回的 ID")
+    symbols.add_argument("--path", help="限定目标定义的相对文件路径")
     for command in ("inspect", "rollback"):
         stored = commands.add_parser(command, help="查看运行记录" if command == "inspect" else "预览并确认恢复")
         stored.add_argument("--run-id", required=True)
         stored.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_ROOT)
+    history = commands.add_parser("history", help="列出历史任务与中断状态")
+    history.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_ROOT)
+    history.add_argument("--limit", type=int, default=100)
+    events = commands.add_parser("events", help="按游标重放持久化审计事件")
+    events.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_ROOT)
+    events.add_argument("--run-id", required=True)
+    events.add_argument("--after", type=int, default=0)
+    events.add_argument("--limit", type=int, default=100)
+    commands.add_parser("serve", help="独立本地 JSONL 任务服务（stdin/stdout）")
     run = commands.add_parser("run", help="运行 Mock 或真实 API；发送和修改分别确认")
     run.add_argument("--project", type=Path, required=True, help="目标项目目录")
     run.add_argument("--task", required=True, help="bug 描述")
@@ -50,17 +70,44 @@ def build_parser() -> argparse.ArgumentParser:
     permissions = run.add_mutually_exclusive_group()
     permissions.add_argument("--read-only", action="store_true", help="只读模式")
     permissions.add_argument("--allow-tests", action="store_true", help="允许执行可信项目的测试代码（不是安全沙箱）")
-    run.add_argument("--test-python", type=Path, help="目标项目虚拟环境解释器")
+    run.add_argument("--test-python", type=Path, help="目标项目虚拟环境解释器；省略时探测项目本地环境")
     run.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_ROOT,
                      help="本地审计目录，必须位于目标项目之外（模型不能指定）")
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, interaction=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "serve":
+        from .service import serve
+        return serve()
+    if args.command in {"history", "events"}:
+        from .history import history, replay
+        try:
+            result = history(args.runs_dir, limit=args.limit) if args.command == "history" else replay(AuditLog.open(args.runs_dir, args.run_id), after=args.after, limit=args.limit)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        except (OSError, ValueError, RuntimeError) as exc:
+            parser.error(str(exc))
     if args.command in {"inspect", "rollback"}:
-        return stored_run(args)
+        return stored_run(args, interaction=interaction)
+    if args.command == "symbols":
+        try:
+            files = FileTools(PolicyGuard(args.project), load_config(args.config))
+            operation = "find_" + args.operation.replace("-", "_")
+            result = ToolRegistry(files).symbols.query(operation, args.symbol, args.path)
+            print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+            return 0 if result.ok else 1
+        except (OSError, RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
+    if args.command == "project":
+        try:
+            overview = discover_repository(FileTools(PolicyGuard(args.project), load_config(args.config)))
+            print(json.dumps(overview, ensure_ascii=False, indent=2))
+            return 0
+        except (OSError, RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
     if args.command == "files":
         try:
             config = load_config(args.config)
@@ -69,63 +116,11 @@ def main(argv: list[str] | None = None) -> int:
         result = browse(args, config)
         print(json.dumps(result.to_dict(), ensure_ascii=False))
         return 0 if result.ok else 1
+    from .runtime import run_task
     try:
-        policy = PolicyGuard(args.project)
-        if not args.task.strip() or len(args.task) > 4096:
-            parser.error("--task 需要 1–4096 个字符")
-        config = load_config(args.config)
-        if args.model == "api" and config.api is None:
-            parser.error("--model api 需要 --config 中的 api 配置；参考 agent.api.example.json")
-        if args.model == "mock" and args.send_path:
-            parser.error("--send-path 仅用于 --model api")
-        if args.allow_tests != (args.test_python is not None):
-            parser.error("--allow-tests 与 --test-python 必须同时提供")
-        interpreter = validate_interpreter(args.test_python) if args.allow_tests else None
-        files = FileTools(policy, config)
-        redactor = None
-        manifest = None
-        adapter = MockAdapter()
-        if args.model == "api":
-            key = load_api_key(config.api)
-            redactor = Redactor([key])
-            manifest = disclosure_files(files, args.send_path)
-            # Do not disclose credential-like filenames/endpoint configuration either.
-            if redactor.value(manifest) != manifest or redactor.text(config.api.endpoint) != config.api.endpoint:
-                parser.error("发送配置或文件清单包含疑似凭据，请先移除")
-            files = ScopedFiles(policy, config, manifest, redactor)
-            adapter = HTTPAdapter(config.api, key=key, timeout=config.model_timeout_seconds, redactor=redactor)
-        audit = AuditLog(args.runs_dir, policy.root, redactor=redactor)
+        return run_task(args, interaction=interaction, error=parser.error, confirm=confirm, controller_factory=AgentController)
     except (OSError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
-    if args.model == "mock":
-        print("Mock 为预设的 average 空列表演示，不是通用模型。")
-    print("只读模式：仅显示提案。" if args.read_only else "每次修改先显示差异，再请求确认；默认拒绝。")
-    print(f"运行目录：{audit.directory}", flush=True)
-    def approve_disclosure():
-        print(f"模型服务：{config.api.endpoint}\n协议：{config.api.protocol}\n模型：{config.api.model}")
-        print(f"本次全部模型请求及重试的合计预算：¥{config.api.max_run_cost_cny:.2f}；发送前按输入估计及最大输出预留。")
-        print("允许模型按需读取的文件（不会自动上传全部内容）：\n" + "\n".join(manifest))
-        print("将发送任务、上述范围内按需读取的内容、工具结果及已授权测试的输出；测试输出可能包含项目运行产生的其他内容。")
-        print("后续新增文件需重新启动并确认范围。API 请求可能产生服务费用；日志不保存凭据或模型隐藏推理。")
-        approved = confirm("同意向该服务发送以上数据范围？[y/N]: ")
-        audit.record("disclosure_approval", endpoint=config.api.endpoint, model=config.api.model,
-                     protocol=config.api.protocol, files=manifest, approved=approved)
-        adapter.authorized = approved
-        return approved
-    try:
-        result = AgentController(adapter, ToolRegistry(files), audit, config,
-                                 read_only=args.read_only, approve=lambda proposal: confirm("应用此提案？[y/N]: "),
-                                 display=print, test_runner=TestRunner(policy, interpreter, config, authorized=True)
-                                 if interpreter else None, before_run=approve_disclosure if manifest is not None else None,
-                                 project_files=manifest).run(args.task)
-    except (OSError, ValueError):
-        print("状态：failed；记录或执行失败，报告可能不完整。请检查运行目录中的 manifest.json 和备份。")
-        return 1
-    print(f"状态：{result.status} ({result.reason})")
-    print(result.message)
-    print("测试、应用与恢复状态请查看报告及 manifest.json。")
-    print(f"报告：{result.report}")
-    return result.exit_code
 
 
 def confirm(prompt: str) -> bool:
@@ -135,45 +130,9 @@ def confirm(prompt: str) -> bool:
         return False
 
 
-def stored_run(args) -> int:
-    try:
-        audit = AuditLog.open(args.runs_dir, args.run_id)
-        if args.command == "inspect":
-            state = {"run_id": audit.run_id, "directory": str(audit.directory)}
-            for name in ("summary.json", "manifest.json", "rollback.json"):
-                if audit._path(name).exists():
-                    state[name] = audit.read_json(name)
-            print(json.dumps(state, ensure_ascii=False, indent=2))
-            return 0
-        if not audit._path("manifest.json").exists():
-            print("本次运行没有应用清单，无需恢复。")
-            return 0
-        manifest = audit.read_json("manifest.json")
-        if not isinstance(manifest, dict) or not isinstance(manifest.get("project"), str):
-            raise ValueError("Invalid manifest project")
-        policy = PolicyGuard(Path(manifest["project"]))
-        patches = PatchManager(policy, audit.directory, read_only=False)
-        files = patches.rollback_preview()
-        print(f"恢复目标：{policy.root}")
-        print("\n".join(files) if files else "没有待恢复的修改。")
-        if not files:
-            return 0
-        approved = confirm("恢复上述文件？[y/N]: ")
-        audit.record("rollback_approval", approved=approved, files=files)
-        if not approved:
-            print("已取消恢复。")
-            return 3
-        restored = patches.rollback(True)
-        audit.record("rollback_finished", files=restored, status="rolled_back")
-        audit.write_json("rollback.json", {"status": "rolled_back", "files": restored})
-        print("恢复完成；原运行报告保留为历史记录，当前状态见 manifest.json。")
-        return 0
-    except KeyboardInterrupt:
-        print("已取消；若在恢复过程中中断，请检查 manifest.json 后重试。")
-        return 3
-    except (OSError, ValueError, RuntimeError) as exc:
-        print(f"操作失败：{exc}")
-        return 1
+def stored_run(args, *, interaction=None):
+    from .runtime import recover_run
+    return recover_run(args, interaction=interaction, confirm=confirm)
 
 
 @result_boundary

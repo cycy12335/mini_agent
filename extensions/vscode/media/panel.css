@@ -1,0 +1,73 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 1400px; padding: 32px; color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); }
+header, .section-head, .status-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.eyebrow { font-size: 11px; letter-spacing: 2px; color: var(--vscode-descriptionForeground); }
+h1 { font-size: 30px; margin: 10px 0; font-weight: 600; }
+h2 { font-size: 18px; margin: 0 0 20px; }
+h3 { font-size: 14px; margin-top: 28px; }
+header p, .hint, footer { color: var(--vscode-descriptionForeground); }
+main { display: grid; grid-template-columns: minmax(280px, .9fr) minmax(340px, 1.3fr); gap: 24px; margin-top: 24px; align-items: start; }
+.card { padding: 24px; border: 1px solid var(--vscode-panel-border); border-radius: 10px; }
+label { display: block; font-size: 12px; margin: 16px 0 8px; }
+input, textarea, select { width: 100%; min-width: 0; padding: 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px; font: inherit; }
+textarea { resize: vertical; }
+button { border: 1px solid transparent; border-radius: 4px; padding: 9px 13px; font: inherit; cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+button:hover { background: var(--vscode-button-hoverBackground); }
+button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible, input:focus, textarea:focus, select:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.row { display: flex; gap: 10px; }
+.row button { flex-shrink: 0; }
+.options > div { flex: 1; min-width: 0; }
+.hint { font-size: 12px; line-height: 1.7; }
+#notice { color: var(--vscode-textLink-foreground); line-height: 1.6; overflow-wrap: anywhere; }
+.status-row { margin-top: 24px; flex-wrap: wrap; }
+#run-id { font-size: 11px; color: var(--vscode-descriptionForeground); }
+#conclusion { line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.actions { flex-wrap: wrap; }
+.verification { background: var(--vscode-textBlockQuote-background); border-left: 3px solid var(--vscode-textLink-foreground); padding: 12px; margin-top: 18px; line-height: 1.6; }
+#approval-detail { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: 12px; }
+#preview-files { margin-top: 12px; flex-wrap: wrap; }
+#recovery-state { white-space: pre-wrap; overflow-wrap: anywhere; }
+details { margin-top: 16px; } summary { cursor: pointer; }
+#test-cases { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.insight-section { border-top: 1px solid var(--vscode-panel-border); margin-top: 24px; padding-top: 8px; }
+.hypothesis { border: 1px solid var(--vscode-panel-border); border-radius: 5px; padding: 12px; margin: 10px 0; }
+.hypothesis pre, #unresolved { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.preserve-lines, #budget, #history-project { white-space: pre-wrap; }
+#call-graph { overflow: auto; max-height: 420px; margin: 12px 0; }
+#call-sites { display: flex; flex-wrap: wrap; gap: 8px; }
+.edge { fill: none; stroke: var(--vscode-descriptionForeground); stroke-width: 1.5; }
+.edge.uncertain { stroke-dasharray: 5 5; }
+.arrow { fill: var(--vscode-descriptionForeground); }
+.graph-node rect { fill: var(--vscode-editor-background); stroke: var(--vscode-textLink-foreground); }
+.graph-node.candidate rect { stroke-dasharray: 4 3; }
+.graph-node text { fill: var(--vscode-foreground); font-size: 11px; }
+.graph-node .node-note { fill: var(--vscode-descriptionForeground); font-size: 10px; }
+.graph-node[role=button] { cursor: pointer; }
+.graph-node:focus rect { stroke: var(--vscode-focusBorder); stroke-width: 3px; }
+ol { list-style: none; padding: 0; max-height: 560px; overflow-y: auto; }
+li { padding: 12px 0 12px 16px; border-left: 2px solid var(--vscode-panel-border); }
+li strong { font-size: 12px; } time { float: right; font-size: 11px; color: var(--vscode-descriptionForeground); }
+li p { margin: 6px 0; color: var(--vscode-descriptionForeground); font-size: 12px; overflow-wrap: anywhere; white-space: pre-wrap; }
+footer { margin-top: 24px; font-size: 11px; }
+/* A WebviewView shares the sidebar width with the Explorer. */
+body { max-width: none; padding: 12px; background: var(--vscode-sideBar-background); font-size: var(--vscode-font-size, 13px); }
+header { gap: 8px; align-items: flex-start; }
+h1 { font-size: 19px; margin: 0; }
+header p { font-size: 12px; margin: 6px 0 0; }
+h2 { font-size: 14px; margin-bottom: 12px; }
+main { display: flex; flex-direction: column; gap: 18px; margin-top: 16px; }
+.card { width: 100%; min-width: 0; padding: 0; border: 0; border-radius: 0; }
+.card + .card { border-top: 1px solid var(--vscode-panel-border); padding-top: 16px; }
+.row { gap: 6px; min-width: 0; }
+.options { flex-direction: column; }
+button { padding: 6px 9px; overflow-wrap: anywhere; }
+input, textarea, select { padding: 7px; }
+#start { margin-top: 14px; width: 100%; }
+.status-row { gap: 6px; margin-top: 14px; }
+#run-id, #history-project, #budget { overflow-wrap: anywhere; }
+#approval .row { flex-wrap: wrap; }
+.insight-section { margin-top: 16px; }
+@media (max-width: 260px) { header { flex-wrap: wrap; } .row { flex-wrap: wrap; } }

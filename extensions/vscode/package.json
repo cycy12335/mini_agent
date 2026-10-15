@@ -1,0 +1,75 @@
+{
+  "name": "mini-agent-panel",
+  "displayName": "Mini Agent",
+  "description": "Run the independent Mini Coding Agent and inspect its audit timeline.",
+  "version": "0.6.0",
+  "publisher": "mini-agent-local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./src/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "miniAgent.open",
+        "title": "Mini Agent: 打开侧边栏"
+      }
+    ],
+    "configuration": {
+      "title": "Mini Agent",
+      "properties": {
+        "miniAgent.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "已安装 mini-coding-agent 的 Python 可执行文件路径。"
+        },
+        "miniAgent.configPath": {
+          "type": "string",
+          "default": "",
+          "description": "Agent JSON 配置的绝对路径。未使用侧边栏 API 配置时为 API 模式提供设置；面板配置优先。"
+        },
+        "miniAgent.testPythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "目标项目测试解释器的绝对路径。仅授权测试模式使用。"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "miniAgent",
+          "title": "Mini Agent",
+          "icon": "media/agent.svg"
+        }
+      ]
+    },
+    "views": {
+      "miniAgent": [
+        {
+          "type": "webview",
+          "id": "miniAgent.sidebar",
+          "name": "Mini Agent"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check src/extension.js && node --check src/settings.js && node --check src/api-settings.js && node --check src/agent-process.js && node --check src/insights.js && node --check media/panel.js && node --check media/insights.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cycy12335/mini_agent.git",
+    "directory": "extensions/vscode"
+  }
+}

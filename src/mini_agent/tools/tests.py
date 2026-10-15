@@ -7,11 +7,15 @@ from pathlib import Path
 import subprocess
 import threading
 import time
+import re
+import tomllib
+import configparser
 
 from ..config import AgentConfig
 from ..models import ToolError
 from ..policy import PolicyGuard, _check_links
 from ..patching import atomic_write
+from .files import FileTools
 from .processes import PosixGroup, WindowsJob
 
 
@@ -25,6 +29,32 @@ def validate_interpreter(path: Path) -> Path:
             or not interpreter.is_file() or not (environment / "pyvenv.cfg").is_file()):
         raise ToolError("INVALID_INTERPRETER", "Select an existing Python executable in a virtual environment")
     return interpreter
+
+
+def select_pytest_configuration(policy, config):
+    files = FileTools(policy, config)
+    for name in ("pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini"):
+        try:
+            path = policy.resolve(name)
+            _, text = files._read(name)
+        except FileNotFoundError:
+            continue
+        try:
+            if name == "pytest.ini":
+                ini = configparser.ConfigParser(interpolation=None)
+                ini.read_string(text)
+                return path
+            if name == "pyproject.toml":
+                if "pytest" in tomllib.loads(text).get("tool", {}):
+                    return path
+            else:
+                ini = configparser.ConfigParser(interpolation=None)
+                ini.read_string(text)
+                if ini.has_section("tool:pytest" if name == "setup.cfg" else "pytest"):
+                    return path
+        except (ValueError, configparser.Error, AttributeError, TypeError) as exc:
+            raise ToolError("INVALID_TEST_CONFIGURATION", "Root pytest configuration cannot be parsed safely") from exc
+    return None
 
 
 def build_test_environment(report: Path) -> dict[str, str]:
@@ -55,6 +85,8 @@ class TestResult:
     complete: bool = False
     cases: dict[str, str] | None = None
     collection_errors: list[str] | None = None
+    failure_types: dict[str, str] | None = None
+    scope: dict | None = None
 
     @property
     def passed(self):
@@ -75,15 +107,25 @@ class TestRunner:
         self.policy, self.interpreter, self.config = policy, interpreter, config
         self.authorized = authorized
 
-    def run(self, report: Path, *, cancelled=lambda: False, timeout: float | None = None) -> TestResult:
+    def run(self, report: Path, *, cancelled=lambda: False, timeout: float | None = None,
+            targets: list[str] | None = None) -> TestResult:
         if not self.authorized:
             raise ToolError("TESTS_NOT_AUTHORIZED", "Explicit test authorization is required")
         if report.exists() or report.is_symlink():
             raise ToolError("TEST_REPORT_EXISTS", "Each test invocation requires a fresh report path")
         interpreter = validate_interpreter(self.interpreter)
-        self.policy.resolve("tests", directory=True)
+        selected = self.validate_targets(targets or ["tests"])
         self.policy.resolve(".", directory=True)
-        command = [str(interpreter), "-m", "pytest", "tests", "-q"]
+        configuration = select_pytest_configuration(self.policy, self.config)
+        if configuration is None:
+            configuration = report.parent / "mini_agent_pytest_empty.ini"
+            _check_links(report.parent)
+            if configuration.exists():
+                _check_links(configuration)
+                if configuration.stat().st_nlink > 1:
+                    raise ToolError("TEST_CONFIG_LINK", "Linked fallback test configuration is forbidden")
+            atomic_write(configuration, b"[pytest]\n")
+        command = [str(interpreter), "-m", "pytest", "-c", str(configuration), "--rootdir=.", *selected, "-q"]
         result = TestResult(command)
         if cancelled():
             result.cancelled = True
@@ -172,9 +214,39 @@ class TestRunner:
                         and all(isinstance(v, str) for v in errors)):
                     result.complete = data.get("complete") is True
                     result.cases, result.collection_errors = cases, errors
+                    failures = data.get("failure_types", {})
+                    if isinstance(failures, dict) and all(k in cases and isinstance(v, str) and len(v) <= 128 for k, v in failures.items()):
+                        result.failure_types = failures
         except (OSError, ValueError, AttributeError, TypeError):
             result.error = "INVALID_TEST_REPORT"
         return result
+
+    def validate_targets(self, targets):
+        if not isinstance(targets, list) or not 1 <= len(targets) <= self.config.max_test_targets:
+            raise ToolError("INVALID_TEST_TARGET", "Test selectors exceed the allowed count")
+        selected = []
+        for target in targets:
+            if not isinstance(target, str) or not target or len(target) > 1536 or any(ord(c) < 32 for c in target):
+                raise ToolError("INVALID_TEST_TARGET", "Invalid test selector")
+            parts = target.split("::")
+            path = parts[0]
+            if path.startswith("-") or any(not re.fullmatch(r"[A-Za-z_]\w*", node) for node in parts[1:]):
+                raise ToolError("INVALID_TEST_TARGET", "Only paths and literal Python test names are selectable")
+            if len(parts) > 3:
+                raise ToolError("INVALID_TEST_TARGET", "Test selector nesting is unsupported")
+            try:
+                self.policy.resolve(path, directory=True)
+                if len(parts) != 1:
+                    raise ToolError("INVALID_TEST_TARGET", "Node selectors require a Python file")
+            except ToolError as exc:
+                if exc.code != "NOT_DIRECTORY":
+                    raise
+                resolved = self.policy.resolve(path)
+                if resolved.suffix != ".py":
+                    raise ToolError("INVALID_TEST_TARGET", "Test files must be Python source")
+            if target not in selected:
+                selected.append(target)
+        return selected
 
 
 def compare_results(baseline: TestResult, latest: TestResult) -> dict:

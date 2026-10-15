@@ -45,7 +45,7 @@ def test_real_baseline_apply_verify_and_recover(project, tmp_path, interpreter):
     summary = agent.audit.read_json("summary.json")
     baseline, latest = summary["test_history"]
     assert baseline["exit_code"] == 1 and latest["exit_code"] == 0
-    assert latest["command"] == [str(interpreter), "-m", "pytest", "tests", "-q"]
+    assert latest["command"] == [str(interpreter), "-m", "pytest", "-c", str(project / "pytest.ini"), "--rootdir=.", "tests", "-q"]
     assert summary["comparison"]["fixed_failures"] == ["tests/test_calculator.py::test_average_empty"]
     assert not summary["comparison"]["new_failures"]
     assert "2 passed" in (agent.audit.directory / "test-output.txt").read_text(encoding="utf-8")
@@ -275,4 +275,4 @@ def test_model_can_request_only_authorized_fixed_tests(project, tmp_path, interp
     agent = controller(project, tmp_path, interpreter, adapter=TestAdapter())
     assert agent.run("task").status == "failed"
     assert [item["phase"] for item in agent.test_history] == ["baseline", "requested"]
-    assert all(item["command"] == [str(interpreter), "-m", "pytest", "tests", "-q"] for item in agent.test_history)
+    assert all(item["command"] == [str(interpreter), "-m", "pytest", "-c", str(project / "pytest.ini"), "--rootdir=.", "tests", "-q"] for item in agent.test_history)

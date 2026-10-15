@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+    "name": "Mini Agent 插件开发宿主",
+    "type": "extensionHost",
+    "request": "launch",
+    "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+    "outFiles": []
+  }, {
+    "name": "Mini Agent 离线人工测试",
+    "type": "extensionHost",
+    "request": "launch",
+    "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${workspaceFolder}/../../examples/demo-visual/readonly"],
+    "outFiles": []
+  }]
+}

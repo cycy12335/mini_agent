@@ -45,3 +45,45 @@ jobs:
         run: python scripts/check_example_baseline.py
       - name: Verify wheel-installed CLI and recovery
         run: python scripts/check_installed_cli.py
+      - name: Verify installed diagnosis, panel, repair, service and acceptance
+        shell: bash
+        run: |
+          python scripts/check_installed_diagnosis.py
+          python scripts/check_installed_panel.py
+          python scripts/check_installed_repair.py
+          python scripts/check_installed_service.py
+          python scripts/check_installed_acceptance.py
+
+  vscode:
+    name: VS Code / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Prepare Python core for bridge tests
+        run: python -m venv .venv
+      - name: Install core in the bridge environment
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            .venv/Scripts/python.exe -m pip install ".[dev]"
+          else
+            .venv/bin/python -m pip install ".[dev]"
+          fi
+      - name: Check JavaScript syntax
+        working-directory: extensions/vscode
+        run: npm run check
+      - name: Test extension and real Python bridge
+        working-directory: extensions/vscode
+        run: npm test

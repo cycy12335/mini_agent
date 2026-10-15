@@ -9,6 +9,7 @@ _cases = {}
 _collection_errors = []
 _incomplete = False
 _size = 0
+_failure_types = {}
 
 
 def pytest_runtest_logreport(report):
@@ -36,9 +37,15 @@ def pytest_collectreport(report):
             _collection_errors.append(report.nodeid)
 
 
+def pytest_exception_interact(node, call, report):
+    if report.nodeid in _cases and call.excinfo is not None:
+        _failure_types[report.nodeid] = call.excinfo.type.__name__[:128]
+
+
 def pytest_sessionfinish(session, exitstatus):
-    payload = {"version": 1, "exit_code": int(exitstatus), "complete": not _incomplete,
-               "cases": _cases, "collection_errors": _collection_errors}
+    payload = {"version": 1, "exit_code": int(exitstatus),
+               "complete": not _incomplete and len(_cases) == session.testscollected,
+               "cases": _cases, "collection_errors": _collection_errors, "failure_types": _failure_types}
     raw = json.dumps(payload, ensure_ascii=True).encode("utf-8")
     if len(raw) > 256 * 1024:
         raw = json.dumps({**payload, "complete": False, "cases": {}, "collection_errors": []}).encode("utf-8")
